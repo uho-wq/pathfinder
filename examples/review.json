@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "title": "ユーザー招待機能の追加",
+  "summary": "組織にメンバーを招待する機能を追加するPR。招待トークンのデータモデルを新設し、メール送信サービスを経由して招待リンクを送る。既存の認証フローに招待受諾のエンドポイントが追加される。",
+  "base": "main",
+  "head": "feature/user-invitation",
+  "steps": [
+    {
+      "name": "データモデル",
+      "description": "このPRの中心となる Invitation モデルから読み始めると、後続の全ての変更の前提が理解できる。",
+      "files": [
+        {
+          "path": "internal/model/invitation.go",
+          "status": "added",
+          "summary": "招待を表す Invitation 構造体を新設。トークンは crypto/rand で生成し、有効期限は作成から72時間。ステータスは pending / accepted / expired の3状態。",
+          "review_points": [
+            "トークン生成に乱数の偏りがないか(crypto/rand の使い方)",
+            "有効期限の判定がUTC基準になっているか",
+            "ステータス遷移に不正な遷移(accepted → pending 等)を防ぐガードがあるか"
+          ],
+          "dependencies": [
+            "internal/model/user.go の User 型(招待者のID参照)"
+          ],
+          "dependents": [
+            "internal/service/invitation.go の全関数",
+            "internal/handler/invitation.go のリクエスト処理"
+          ],
+          "diff": "diff --git a/internal/model/invitation.go b/internal/model/invitation.go\nnew file mode 100644\n--- /dev/null\n+++ b/internal/model/invitation.go\n@@ -0,0 +1,12 @@\n+package model\n+\n+import \"time\"\n+\n+type Invitation struct {\n+\tID        string\n+\tOrgID     string\n+\tEmail     string\n+\tToken     string\n+\tStatus    string\n+\tExpiresAt time.Time\n+}\n"
+        }
+      ]
+    },
+    {
+      "name": "ビジネスロジック",
+      "description": "モデルを踏まえて、招待の作成・受諾のユースケースを確認する。",
+      "files": [
+        {
+          "path": "internal/service/invitation.go",
+          "status": "added",
+          "summary": "招待の作成(CreateInvitation)と受諾(AcceptInvitation)を実装。作成時に重複招待をチェックし、受諾時にトークン検証と有効期限チェックを行う。",
+          "review_points": [
+            "重複チェックと作成の間にレースコンディションがないか(トランザクション境界)",
+            "期限切れトークンでの受諾が確実に拒否されるか",
+            "メール送信失敗時に招待レコードがロールバックされるか"
+          ],
+          "dependencies": [
+            "internal/model/invitation.go の Invitation 型",
+            "internal/mail/sender.go の Sender インターフェース(既存)"
+          ],
+          "dependents": [
+            "internal/handler/invitation.go の POST /invitations, POST /invitations/accept"
+          ],
+          "diff": "diff --git a/internal/service/invitation.go b/internal/service/invitation.go\nnew file mode 100644\n--- /dev/null\n+++ b/internal/service/invitation.go\n@@ -0,0 +1,9 @@\n+package service\n+\n+// CreateInvitation issues a new invitation and sends the invite mail.\n+func CreateInvitation() error {\n+\treturn nil\n+}\n+\n+// AcceptInvitation validates the token and activates membership.\n+func AcceptInvitation() error { return nil }\n"
+        }
+      ]
+    },
+    {
+      "name": "APIの境界",
+      "description": "最後に外部との境界を確認する。入力バリデーションとエラーレスポンスが主な観点。",
+      "files": [
+        {
+          "path": "internal/handler/invitation.go",
+          "status": "added",
+          "summary": "招待作成・受諾のHTTPハンドラ。メールアドレスの形式チェックを行い、サービス層のエラーを4xx/5xxにマッピングする。",
+          "review_points": [
+            "トークンをURLクエリではなくリクエストボディで受けているか(ログ漏洩対策)",
+            "期限切れと不正トークンでレスポンスを区別しすぎていないか(列挙攻撃)",
+            "権限チェック: 招待作成が組織管理者に限定されているか"
+          ],
+          "dependencies": [
+            "internal/service/invitation.go の CreateInvitation / AcceptInvitation"
+          ],
+          "dependents": [
+            "cmd/server/routes.go のルーティング定義"
+          ],
+          "diff": "diff --git a/internal/handler/invitation.go b/internal/handler/invitation.go\nnew file mode 100644\n--- /dev/null\n+++ b/internal/handler/invitation.go\n@@ -0,0 +1,6 @@\n+package handler\n+\n+// InvitationHandler exposes invitation endpoints.\n+type InvitationHandler struct{}\n"
+        }
+      ]
+    }
+  ]
+}
