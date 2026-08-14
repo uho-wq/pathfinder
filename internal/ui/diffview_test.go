@@ -95,7 +95,7 @@ func TestUnpairedAddHasNoEmphasis(t *testing.T) {
 }
 
 func TestRenderDiffShowsGutterNumbers(t *testing.T) {
-	out := renderDiff(sampleDiff, 80)
+	out := renderDiff("foo.go", sampleDiff, 80)
 	for _, want := range []string{"10 10", "11   ", "   11", "   12", "12 13", "@@ -10,4 +10,5 @@"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("rendered diff should contain %q\n%s", want, out)
@@ -107,7 +107,7 @@ func TestRenderDiffShowsGutterNumbers(t *testing.T) {
 }
 
 func TestRenderDiffNarrowPaneUsesSingleColumn(t *testing.T) {
-	out := renderDiff(sampleDiff, 24)
+	out := renderDiff("foo.go", sampleDiff, 24)
 	if strings.Contains(out, "10 10") {
 		t.Error("narrow pane should not render two number columns")
 	}
@@ -118,7 +118,7 @@ func TestRenderDiffNarrowPaneUsesSingleColumn(t *testing.T) {
 
 func TestRenderDiffPassesThroughNonDiffText(t *testing.T) {
 	msg := "差分を取得できませんでした:\ngit diff: exit status 128"
-	out := renderDiff(msg, 80)
+	out := renderDiff("", msg, 80)
 	for _, want := range []string{"差分を取得できませんでした", "exit status 128"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("non-diff text should pass through, missing %q in %q", want, out)
@@ -156,7 +156,7 @@ func TestMarkSectionOldSide(t *testing.T) {
 }
 
 func TestRenderDiffSectionBarAndOffset(t *testing.T) {
-	out, off := renderDiffSection(sampleDiff, 80, 11, 12, false)
+	out, off := renderDiffSection("foo.go", sampleDiff, 80, 11, 12, false)
 	if off != 2 {
 		t.Errorf("offset = %d, want 2 (first marked row)", off)
 	}
@@ -167,8 +167,8 @@ func TestRenderDiffSectionBarAndOffset(t *testing.T) {
 }
 
 func TestRenderDiffSectionWithoutRangeMatchesRenderDiff(t *testing.T) {
-	plain := renderDiff(sampleDiff, 80)
-	sect, off := renderDiffSection(sampleDiff, 80, 0, 0, false)
+	plain := renderDiff("foo.go", sampleDiff, 80)
+	sect, off := renderDiffSection("foo.go", sampleDiff, 80, 0, 0, false)
 	if plain != sect || off != 0 {
 		t.Error("start_line 0 should render exactly like renderDiff")
 	}
@@ -176,7 +176,7 @@ func TestRenderDiffSectionWithoutRangeMatchesRenderDiff(t *testing.T) {
 
 func TestRenderDiffKeepsMeaningfulMeta(t *testing.T) {
 	d := "diff --git a/new.go b/new.go\nnew file mode 100644\nindex 000..111\n--- /dev/null\n+++ b/new.go\n@@ -0,0 +1,1 @@\n+package main\n"
-	out := renderDiff(d, 80)
+	out := renderDiff("new.go", d, 80)
 	if !strings.Contains(out, "new file mode 100644") {
 		t.Errorf("new-file marker should stay visible:\n%s", out)
 	}

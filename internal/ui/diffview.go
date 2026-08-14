@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -144,10 +145,11 @@ func markPair(d, a *diffLine) {
 }
 
 // renderDiff renders a unified diff GitHub-style into a string sized for
-// the diff pane. Text that is not a unified diff (error messages, binary
-// notices) is passed through as-is.
-func renderDiff(diff string, width int) string {
-	s, _ := renderDiffSection(diff, width, 0, 0, false)
+// the diff pane, syntax-highlighting content by the file type of path.
+// Text that is not a unified diff (error messages, binary notices) is
+// passed through as-is.
+func renderDiff(path, diff string, width int) string {
+	s, _ := renderDiffSection(path, diff, width, 0, 0, false)
 	return s
 }
 
@@ -156,7 +158,7 @@ func renderDiff(diff string, width int) string {
 // set) with a bar in the left margin. The second return value is the row
 // index where the marked range begins, for scrolling it into view.
 // start == 0 disables marking.
-func renderDiffSection(diff string, width, start, end int, useOld bool) (string, int) {
+func renderDiffSection(path, diff string, width, start, end int, useOld bool) (string, int) {
 	if strings.TrimSpace(diff) == "" {
 		return styleFaint.Render("(差分がありません)"), 0
 	}
@@ -194,6 +196,7 @@ func renderDiffSection(diff string, width, start, end int, useOld bool) (string,
 		cols = 0
 	}
 
+	hl := highlighterFor(path)
 	var b strings.Builder
 	for i, l := range lines {
 		if i > 0 {
@@ -206,7 +209,7 @@ func renderDiffSection(diff string, width, start, end int, useOld bool) (string,
 				b.WriteByte(' ')
 			}
 		}
-		b.WriteString(renderDiffLine(l, numW, cols, width))
+		b.WriteString(renderDiffLine(l, hl, numW, cols, width))
 	}
 	return b.String(), offset
 }
@@ -301,7 +304,7 @@ func gutterText(l diffLine, numW, cols int) string {
 	return ""
 }
 
-func renderDiffLine(l diffLine, numW, cols, width int) string {
+func renderDiffLine(l diffLine, hl *highlighter, numW, cols, width int) string {
 	gw := gutterWidth(numW, cols)
 	cw := width - gw
 
@@ -320,32 +323,65 @@ func renderDiffLine(l diffLine, numW, cols, width int) string {
 
 	case diffAdd:
 		return styleDiffAddGut.Render(gutterText(l, numW, cols)) +
-			diffContentRow("+", l, styleDiffAddLine, styleDiffAddWord, cw)
+			diffContentRow("+", l, hl, styleDiffAddLine, styleDiffAddWord, cw)
 
 	case diffDel:
 		return styleDiffDelGut.Render(gutterText(l, numW, cols)) +
-			diffContentRow("-", l, styleDiffDelLine, styleDiffDelWord, cw)
+			diffContentRow("-", l, hl, styleDiffDelLine, styleDiffDelWord, cw)
 
 	default: // diffContext
 		return styleDiffCtxGut.Render(gutterText(l, numW, cols)) +
-			diffContentRow(" ", l, styleDiffCtxLine, styleDiffCtxLine, cw)
+			diffContentRow(" ", l, hl, styleDiffCtxLine, styleDiffCtxLine, cw)
 	}
 }
 
-// diffContentRow styles a line's content (sign, text, and the emphasized
-// changed segment), truncates it to the content width ANSI-safely, and
-// pads the remainder so the background tint spans the full row.
-func diffContentRow(sign string, l diffLine, lineSt, wordSt lipgloss.Style, cw int) string {
-	var s string
+// diffContentRow styles a line's content — sign, syntax-colored text,
+// and the emphasized changed segment — truncates it to the content width
+// ANSI-safely, and pads the remainder so the background tint spans the
+// full row. The line is cut wherever a syntax span or the emphasis range
+// starts or ends; each piece gets the word-emphasis background when it
+// falls inside hiLo..hiHi and the syntax foreground of its span.
+func diffContentRow(sign string, l diffLine, hl *highlighter, lineSt, wordSt lipgloss.Style, cw int) string {
+	r := []rune(l.text)
+	spans := hl.spans(l.text)
+
+	cutSet := map[int]bool{0: true, len(r): true}
 	if l.hiLo < l.hiHi {
-		r := []rune(l.text)
-		s = lineSt.Render(sign+string(r[:l.hiLo])) +
-			wordSt.Render(string(r[l.hiLo:l.hiHi])) +
-			lineSt.Render(string(r[l.hiHi:]))
-	} else {
-		s = lineSt.Render(sign + l.text)
+		cutSet[l.hiLo] = true
+		cutSet[l.hiHi] = true
 	}
-	s = truncate.StringWithTail(s, uint(cw), "…")
+	for _, sp := range spans {
+		if sp.lo > 0 && sp.lo < len(r) {
+			cutSet[sp.lo] = true
+		}
+		if sp.hi > 0 && sp.hi < len(r) {
+			cutSet[sp.hi] = true
+		}
+	}
+	cuts := make([]int, 0, len(cutSet))
+	for c := range cutSet {
+		cuts = append(cuts, c)
+	}
+	sort.Ints(cuts)
+
+	var b strings.Builder
+	b.WriteString(lineSt.Render(sign))
+	for k := 0; k+1 < len(cuts); k++ {
+		lo, hi := cuts[k], cuts[k+1]
+		st := lineSt
+		if l.hiLo < l.hiHi && lo >= l.hiLo && lo < l.hiHi {
+			st = wordSt
+		}
+		for _, sp := range spans {
+			if lo >= sp.lo && lo < sp.hi {
+				st = st.Foreground(sp.color)
+				break
+			}
+		}
+		b.WriteString(st.Render(string(r[lo:hi])))
+	}
+
+	s := truncate.StringWithTail(b.String(), uint(cw), "…")
 	if pad := cw - lipgloss.Width(s); pad > 0 {
 		s += lineSt.Render(strings.Repeat(" ", pad))
 	}
