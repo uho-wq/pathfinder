@@ -445,12 +445,12 @@ func (m *Model) layout() {
 	guidePct, borders, calleeW := 30, 6, 0
 	if m.showCallees {
 		guidePct, borders = 24, 8
-		calleeW = m.width * 26 / 100
-		if calleeW < 24 {
-			calleeW = 24
+		calleeW = m.width * 29 / 100
+		if calleeW < 26 {
+			calleeW = 26
 		}
-		if calleeW > 48 {
-			calleeW = 48
+		if calleeW > 52 {
+			calleeW = 52
 		}
 	}
 	guideW := m.width * guidePct / 100
