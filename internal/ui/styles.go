@@ -71,6 +71,15 @@ var (
 
 	styleSectionBar = lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
 
+	// Syntax highlighting palette, GitHub-flavored: red-pink keywords,
+	// blue strings and literals, purple function/type names, faint
+	// comments. Foregrounds only — they sit on the diff tints above.
+	colorSynKeyword = lipgloss.AdaptiveColor{Light: "160", Dark: "210"}
+	colorSynString  = lipgloss.AdaptiveColor{Light: "25", Dark: "153"}
+	colorSynNumber  = lipgloss.AdaptiveColor{Light: "26", Dark: "75"}
+	colorSynFunc    = lipgloss.AdaptiveColor{Light: "91", Dark: "183"}
+	colorSynComment = colorFaint
+
 	styleGuideHead = lipgloss.NewStyle().
 			Foreground(colorAccent).
 			Bold(true)

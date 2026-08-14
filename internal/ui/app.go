@@ -322,12 +322,12 @@ func (m *Model) refreshContent() {
 	}
 	sec, secIdx := m.selectedSection()
 	if sec != nil {
-		content, off := renderDiffSection(m.diffFor(f), m.diff.Width,
+		content, off := renderDiffSection(f.Path, m.diffFor(f), m.diff.Width,
 			sec.StartLine, sec.EndLine, f.Status == "deleted")
 		m.diff.SetContent(content)
 		m.diffOffset = off
 	} else {
-		m.diff.SetContent(renderDiff(m.diffFor(f), m.diff.Width))
+		m.diff.SetContent(renderDiff(f.Path, m.diffFor(f), m.diff.Width))
 	}
 	m.guide.SetContent(renderGuide(st, f, sec, secIdx, m.guide.Width))
 }
