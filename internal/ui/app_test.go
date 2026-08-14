@@ -26,7 +26,7 @@ func TestViewRendersAllPanes(t *testing.T) {
 	m := exampleModel(t)
 	view := m.View()
 	for _, want := range []string{
-		"ファイル", "差分", "レビューガイド", "PRディスクリプション", // pane titles
+		"ファイル", "差分", "呼び出し先", "レビューガイド", "PRディスクリプション", // pane titles
 		"招待トークンのデータモデルを追加",             // PR description in the bottom-right pane
 		"ユーザー招待機能の追加",                  // header title
 		"0/4 レビュー済",                    // progress counts units: 2 files + 2 sections
@@ -125,20 +125,51 @@ func TestFocusCycles(t *testing.T) {
 	if m.focus != paneTree {
 		t.Fatal("initial focus should be tree")
 	}
-	m.handleKey(tea.KeyMsg{Type: tea.KeyTab})
-	if m.focus != paneDiff {
-		t.Error("tab should move focus to diff")
+	for _, want := range []pane{paneDiff, paneCallee, paneGuide, paneDesc, paneTree} {
+		m.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+		if m.focus != want {
+			t.Errorf("tab: focus = %d, want %d", m.focus, want)
+		}
 	}
+}
+
+func TestCalleePaneShowsCalleeBody(t *testing.T) {
+	m := exampleModel(t)
+	// The first unit (the model file) has no callees of its own.
+	view := m.View()
+	if !strings.Contains(view, "呼び出し先") {
+		t.Fatal("callee pane should be shown for plans with callees")
+	}
+	// Move to the first section of the service file, whose callee embeds
+	// the mail sender's body.
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	view = m.View()
+	for _, want := range []string{"mail.Sender.Send", "internal/mail/sender.go"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("callee pane should contain %q", want)
+		}
+	}
+}
+
+func TestCalleePaneHiddenWithoutCallees(t *testing.T) {
+	p := &plan.Plan{
+		Title: "t",
+		Steps: []plan.Step{{Name: "s", Files: []plan.File{{Path: "a.go", Diff: "x"}}}},
+	}
+	st := plan.LoadState(filepath.Join(t.TempDir(), "review.json"))
+	m := New(p, st, "")
+	m.Update(tea.WindowSizeMsg{Width: 160, Height: 48})
+	if strings.Contains(m.View(), "呼び出し先") {
+		t.Error("callee pane should be hidden for plans without callees")
+	}
+	// The focus cycle skips the callee pane in both directions.
+	m.handleKey(tea.KeyMsg{Type: tea.KeyTab})
 	m.handleKey(tea.KeyMsg{Type: tea.KeyTab})
 	if m.focus != paneGuide {
-		t.Error("tab should move focus to guide")
+		t.Errorf("tab should skip the callee pane, focus = %d", m.focus)
 	}
-	m.handleKey(tea.KeyMsg{Type: tea.KeyTab})
-	if m.focus != paneDesc {
-		t.Error("tab should move focus to the description pane")
-	}
-	m.handleKey(tea.KeyMsg{Type: tea.KeyTab})
-	if m.focus != paneTree {
-		t.Error("focus should wrap around to tree")
+	m.handleKey(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if m.focus != paneDiff {
+		t.Errorf("shift+tab should skip the callee pane, focus = %d", m.focus)
 	}
 }

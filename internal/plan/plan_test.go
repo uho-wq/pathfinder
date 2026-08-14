@@ -21,13 +21,19 @@ func TestLoadExample(t *testing.T) {
 	if got := p.TotalUnits(); got != 4 {
 		t.Errorf("TotalUnits = %d, want 4", got)
 	}
+	if !p.HasCallees() {
+		t.Error("example plan should carry callees")
+	}
 }
 
 func TestLoadRejectsBadSections(t *testing.T) {
 	dir := t.TempDir()
 	for name, files := range map[string]string{
-		"notitle.json":  `[{"path":"a.go","sections":[{"summary":"x"}]}]`,
-		"badrange.json": `[{"path":"a.go","sections":[{"title":"t","start_line":10,"end_line":5}]}]`,
+		"notitle.json":      `[{"path":"a.go","sections":[{"summary":"x"}]}]`,
+		"badrange.json":     `[{"path":"a.go","sections":[{"title":"t","start_line":10,"end_line":5}]}]`,
+		"calleenoname.json": `[{"path":"a.go","callees":[{"path":"b.go"}]}]`,
+		"calleenopath.json": `[{"path":"a.go","callees":[{"name":"f"}]}]`,
+		"calleerange.json":  `[{"path":"a.go","sections":[{"title":"t","callees":[{"name":"f","path":"b.go","start_line":9,"end_line":3}]}]}]`,
 	} {
 		path := filepath.Join(dir, name)
 		data := `{"version":1,"title":"x","steps":[{"name":"s","files":` + files + `}]}`

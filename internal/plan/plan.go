@@ -58,6 +58,9 @@ type File struct {
 	// by one. When present, they replace the file as the unit the
 	// reviewer steps through.
 	Sections []Section `json:"sections,omitempty"`
+	// Callees are functions/methods the changed code calls, used for
+	// whole-file units and as a fallback for sections without their own.
+	Callees []Callee `json:"callees,omitempty"`
 }
 
 // Section is one spot inside a file's diff: a hunk, a function, or any
@@ -74,6 +77,30 @@ type Section struct {
 	// ReviewPoints are concrete things to check in this section.
 	ReviewPoints []string `json:"review_points,omitempty"`
 	Notes        string   `json:"notes,omitempty"`
+	// Callees are functions/methods the changed code in this section
+	// calls, shown next to the diff so the reviewer can read their
+	// bodies without leaving the TUI.
+	Callees []Callee `json:"callees,omitempty"`
+}
+
+// Callee is one function or method called by changed code. Its body is
+// resolved from the head revision (or the working tree) at StartLine..
+// EndLine of Path, unless Source embeds it directly.
+type Callee struct {
+	// Name identifies the callee for the reviewer, e.g.
+	// "service.CreateInvitation" or "validateToken".
+	Name string `json:"name"`
+	// Path is the repo-relative file that defines the callee.
+	Path string `json:"path,omitempty"`
+	// StartLine / EndLine delimit the callee's body in Path on the
+	// head side. Zero StartLine shows the file from the top.
+	StartLine int `json:"start_line,omitempty"`
+	EndLine   int `json:"end_line,omitempty"`
+	// Description optionally says why this callee matters for the diff.
+	Description string `json:"description,omitempty"`
+	// Source optionally embeds the callee's body for plans reviewed
+	// outside a git checkout, mirroring File.Diff.
+	Source string `json:"source,omitempty"`
 }
 
 // SectionKey returns the state key marking one section reviewed. It
@@ -119,6 +146,13 @@ func (p *Plan) validate() error {
 					return fmt.Errorf("steps[%d].files[%d].sections[%d]: end_line %d < start_line %d",
 						i, j, k, sec.EndLine, sec.StartLine)
 				}
+				if err := validateCallees(sec.Callees,
+					fmt.Sprintf("steps[%d].files[%d].sections[%d]", i, j, k)); err != nil {
+					return err
+				}
+			}
+			if err := validateCallees(f.Callees, fmt.Sprintf("steps[%d].files[%d]", i, j)); err != nil {
+				return err
 			}
 			total++
 		}
@@ -127,6 +161,40 @@ func (p *Plan) validate() error {
 		return fmt.Errorf("plan has no files")
 	}
 	return nil
+}
+
+func validateCallees(callees []Callee, where string) error {
+	for i, c := range callees {
+		if c.Name == "" {
+			return fmt.Errorf("%s.callees[%d]: name is required", where, i)
+		}
+		if c.Path == "" && c.Source == "" {
+			return fmt.Errorf("%s.callees[%d]: path or source is required", where, i)
+		}
+		if c.EndLine != 0 && c.EndLine < c.StartLine {
+			return fmt.Errorf("%s.callees[%d]: end_line %d < start_line %d",
+				where, i, c.EndLine, c.StartLine)
+		}
+	}
+	return nil
+}
+
+// HasCallees reports whether any file or section in the plan carries
+// callee information; the TUI shows the callee pane only then.
+func (p *Plan) HasCallees() bool {
+	for _, s := range p.Steps {
+		for _, f := range s.Files {
+			if len(f.Callees) > 0 {
+				return true
+			}
+			for _, sec := range f.Sections {
+				if len(sec.Callees) > 0 {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // TotalFiles returns the number of file entries across all steps.

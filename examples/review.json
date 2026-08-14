@@ -47,6 +47,16 @@
               "review_points": [
                 "重複チェックと作成の間にレースコンディションがないか(トランザクション境界)",
                 "メール送信失敗時に招待レコードがロールバックされるか"
+              ],
+              "callees": [
+                {
+                  "name": "mail.Sender.Send",
+                  "path": "internal/mail/sender.go",
+                  "start_line": 14,
+                  "end_line": 20,
+                  "description": "招待メールの送信。失敗時は error を返すだけでリトライしない。",
+                  "source": "func (s *SMTPSender) Send(to, subject, body string) error {\n\tmsg, err := s.build(to, subject, body)\n\tif err != nil {\n\t\treturn err\n\t}\n\treturn s.client.Mail(msg)\n}"
+                }
               ]
             },
             {
@@ -82,6 +92,16 @@
             "トークンをURLクエリではなくリクエストボディで受けているか(ログ漏洩対策)",
             "期限切れと不正トークンでレスポンスを区別しすぎていないか(列挙攻撃)",
             "権限チェック: 招待作成が組織管理者に限定されているか"
+          ],
+          "callees": [
+            {
+              "name": "service.CreateInvitation",
+              "path": "internal/service/invitation.go",
+              "start_line": 4,
+              "end_line": 6,
+              "description": "ハンドラから呼ぶユースケース本体。",
+              "source": "func CreateInvitation() error {\n\treturn nil\n}"
+            }
           ],
           "dependencies": [
             "internal/service/invitation.go の CreateInvitation / AcceptInvitation"
