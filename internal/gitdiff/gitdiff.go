@@ -3,7 +3,9 @@ package gitdiff
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -40,6 +42,36 @@ func FileDiff(dir, base, head, path string) (string, error) {
 			stderr = err.Error()
 		}
 		return "", fmt.Errorf("git %s: %s", strings.Join(args, " "), stderr)
+	}
+	return string(out), nil
+}
+
+// FileAt returns the content of a file at the given revision. With rev
+// empty, the working tree copy is read instead, matching FileDiff's
+// convention that an empty head means "compare against the working
+// tree".
+func FileAt(dir, rev, path string) (string, error) {
+	if rev == "" {
+		data, err := os.ReadFile(filepath.Join(dir, path))
+		if err != nil {
+			return "", err
+		}
+		return string(data), nil
+	}
+	cmd := exec.Command("git", "show", rev+":"+path)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		var stderr string
+		if ee, ok := err.(*exec.ExitError); ok {
+			stderr = strings.TrimSpace(string(ee.Stderr))
+		}
+		if stderr == "" {
+			stderr = err.Error()
+		}
+		return "", fmt.Errorf("git show %s:%s: %s", rev, path, stderr)
 	}
 	return string(out), nil
 }

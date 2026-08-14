@@ -1,6 +1,7 @@
 // Package ui implements the review TUI: an ordered file tree on the
-// left, the file diff in the center, and on the right the AI-authored
-// review guide with the PR description below it.
+// left, the file diff in the center, the bodies of functions the change
+// calls next to it (when the plan carries callee info), and on the
+// right the AI-authored review guide with the PR description below it.
 package ui
 
 import (
@@ -21,6 +22,7 @@ type pane int
 const (
 	paneTree pane = iota
 	paneDiff
+	paneCallee
 	paneGuide
 	paneDesc
 	paneCount
@@ -54,17 +56,23 @@ type Model struct {
 	cursor  int // index into rows; always on a rowFile once initialized
 	treeTop int // first visible tree row (scroll offset)
 
-	focus pane
-	diff  viewport.Model
-	guide viewport.Model
-	desc  viewport.Model // PR description, bottom right
+	focus  pane
+	diff   viewport.Model
+	callee viewport.Model // callee bodies, right of the diff
+	guide  viewport.Model
+	desc   viewport.Model // PR description, bottom right
+
+	// showCallees keeps the callee pane out of the layout (and the
+	// focus cycle) for plans that carry no callee info at all.
+	showCallees bool
 
 	width, height int
 	treeW, treeH  int
 	ready         bool
 
 	diffCache  map[string]string
-	diffOffset int // row where the selected section starts in the diff
+	srcCache   map[string]string // head-side file contents for callees
+	diffOffset int               // row where the selected section starts in the diff
 }
 
 // New builds the application model. repoDir overrides the plan's
@@ -74,11 +82,13 @@ func New(p *plan.Plan, st *plan.State, repoDir string) *Model {
 		repoDir = p.RepoDir
 	}
 	m := &Model{
-		plan:      p,
-		state:     st,
-		repoDir:   repoDir,
-		focus:     paneTree,
-		diffCache: map[string]string{},
+		plan:        p,
+		state:       st,
+		repoDir:     repoDir,
+		focus:       paneTree,
+		diffCache:   map[string]string{},
+		srcCache:    map[string]string{},
+		showCallees: p.HasCallees(),
 	}
 	for i, s := range p.Steps {
 		m.rows = append(m.rows, row{kind: rowStep, step: i})
@@ -128,8 +138,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 
 	case editorFinishedMsg:
-		// The edit may have changed the working tree; re-derive the diff.
+		// The edit may have changed the working tree; re-derive the diff
+		// and, when callees are read from the working tree, their code.
 		delete(m.diffCache, msg.path)
+		if m.plan.Head == "" {
+			m.srcCache = map[string]string{}
+		}
 		m.refreshContent()
 		return m, nil
 	}
@@ -142,10 +156,10 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case "tab", "l", "right":
-		m.focus = (m.focus + 1) % paneCount
+		m.cycleFocus(+1)
 		return m, nil
 	case "shift+tab", "h", "left":
-		m.focus = (m.focus + paneCount - 1) % paneCount
+		m.cycleFocus(-1)
 		return m, nil
 
 	case "n":
@@ -190,12 +204,24 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case paneDiff:
 		m.diff = m.scrollKeys(m.diff, msg)
+	case paneCallee:
+		m.callee = m.scrollKeys(m.callee, msg)
 	case paneGuide:
 		m.guide = m.scrollKeys(m.guide, msg)
 	case paneDesc:
 		m.desc = m.scrollKeys(m.desc, msg)
 	}
 	return m, nil
+}
+
+// cycleFocus moves focus to the neighboring pane, skipping the callee
+// pane when it is not part of the layout.
+func (m *Model) cycleFocus(dir int) {
+	step := func() { m.focus = (m.focus + pane(dir) + paneCount) % paneCount }
+	step()
+	if m.focus == paneCallee && !m.showCallees {
+		step()
+	}
 }
 
 func (m *Model) scrollKeys(vp viewport.Model, msg tea.KeyMsg) viewport.Model {
@@ -319,6 +345,7 @@ func (m *Model) loadSelection() {
 		}
 		m.diff.SetYOffset(off)
 	}
+	m.callee.GotoTop()
 	m.guide.GotoTop()
 	m.scrollTreeIntoView()
 }
@@ -332,6 +359,9 @@ func (m *Model) refreshContent() {
 	m.desc.SetContent(renderDescription(m.plan, m.desc.Width))
 	if f == nil || st == nil {
 		m.guide.SetContent(renderOverview(m.plan, m.guide.Width))
+		if m.showCallees {
+			m.callee.SetContent(renderCallees(nil, m.sourceFor, m.callee.Width))
+		}
 		return
 	}
 	sec, secIdx := m.selectedSection()
@@ -343,7 +373,28 @@ func (m *Model) refreshContent() {
 	} else {
 		m.diff.SetContent(renderDiff(f.Path, m.diffFor(f), m.diff.Width))
 	}
+	if m.showCallees {
+		callees := f.Callees
+		if sec != nil && len(sec.Callees) > 0 {
+			callees = sec.Callees
+		}
+		m.callee.SetContent(renderCallees(callees, m.sourceFor, m.callee.Width))
+	}
 	m.guide.SetContent(renderGuide(st, f, sec, secIdx, m.guide.Width))
+}
+
+// sourceFor loads (and caches) the head-side content of a repo-relative
+// file for the callee pane.
+func (m *Model) sourceFor(path string) (string, error) {
+	if s, ok := m.srcCache[path]; ok {
+		return s, nil
+	}
+	s, err := gitdiff.FileAt(m.repoDir, m.plan.Head, path)
+	if err != nil {
+		return "", err
+	}
+	m.srcCache[path] = s
+	return s, nil
 }
 
 func (m *Model) diffFor(f *plan.File) string {
@@ -389,14 +440,27 @@ func (m *Model) layout() {
 	if treeW > 40 {
 		treeW = 40
 	}
-	guideW := m.width * 30 / 100
+	// With the callee pane in the layout, the guide narrows and every
+	// column pays two more border columns.
+	guidePct, borders, calleeW := 30, 6, 0
+	if m.showCallees {
+		guidePct, borders = 24, 8
+		calleeW = m.width * 26 / 100
+		if calleeW < 24 {
+			calleeW = 24
+		}
+		if calleeW > 48 {
+			calleeW = 48
+		}
+	}
+	guideW := m.width * guidePct / 100
 	if guideW < 24 {
 		guideW = 24
 	}
 	if guideW > 56 {
 		guideW = 56
 	}
-	diffW := m.width - treeW - guideW - 6 // 3 panes x 2 border cols
+	diffW := m.width - treeW - guideW - calleeW - borders
 	if diffW < 20 {
 		diffW = 20
 	}
@@ -423,6 +487,8 @@ func (m *Model) layout() {
 
 	m.diff.Width = diffW
 	m.diff.Height = contentH
+	m.callee.Width = calleeW
+	m.callee.Height = contentH
 	m.guide.Width = guideW
 	m.guide.Height = guideH
 	m.desc.Width = guideW
@@ -442,7 +508,12 @@ func (m *Model) View() string {
 	desc := m.renderPane(paneDesc, "PRディスクリプション", m.desc.View(), m.desc.Width, m.desc.Height)
 	right := lipgloss.JoinVertical(lipgloss.Left, guide, desc)
 
-	body := lipgloss.JoinHorizontal(lipgloss.Top, tree, diff, right)
+	cols := []string{tree, diff}
+	if m.showCallees {
+		cols = append(cols, m.renderPane(paneCallee, "呼び出し先", m.callee.View(), m.callee.Width, m.callee.Height))
+	}
+	cols = append(cols, right)
+	body := lipgloss.JoinHorizontal(lipgloss.Top, cols...)
 	footer := styleFooter.Render(
 		"tab/h/l: ペイン移動  j/k: 選択/スクロール  space: レビュー済→次へ  r: 済トグル  n/p: 次/前ファイル  e: エディタで開く  q: 終了")
 
