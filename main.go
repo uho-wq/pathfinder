@@ -33,7 +33,7 @@ Flags:
 レビューの流れ:
   1. PRのブランチ上で "pathfinder prompt | claude -p" などでプランを生成
   2. "pathfinder .pathfinder/review.json" でTUIを開く
-  3. 左のツリーの順にファイルを読み、右のガイドの観点でレビューする
+  3. 左のツリーの順に箇所を追い、右のガイドの観点でレビューする
 `
 
 func main() {

@@ -11,8 +11,9 @@ import (
 )
 
 // renderGuide builds the right pane: the AI-authored explanation of the
-// selected file within its review step.
-func renderGuide(st *plan.Step, f *plan.File, width int) string {
+// selected unit — a section of a file, or the whole file — within its
+// review step. sec is nil (and secIdx < 0) for whole-file units.
+func renderGuide(st *plan.Step, f *plan.File, sec *plan.Section, secIdx, width int) string {
 	var b strings.Builder
 
 	section := func(title string) {
@@ -34,15 +35,47 @@ func renderGuide(st *plan.Step, f *plan.File, width int) string {
 		b.WriteString("\n")
 	}
 
-	if f.Summary != "" {
-		section("この差分で起こっている変化")
-		para(f.Summary)
-	}
+	if sec != nil {
+		section(fmt.Sprintf("箇所 %d/%d", secIdx+1, len(f.Sections)))
+		title := sec.Title
+		if sec.StartLine > 0 {
+			if sec.EndLine > sec.StartLine {
+				title = fmt.Sprintf("%s (L%d-%d)", title, sec.StartLine, sec.EndLine)
+			} else {
+				title = fmt.Sprintf("%s (L%d)", title, sec.StartLine)
+			}
+		}
+		para(title)
 
-	if len(f.ReviewPoints) > 0 {
-		section("レビュー観点")
-		for _, p := range f.ReviewPoints {
-			b.WriteString(bullet(p, width, styleGuideWarn.Render("✔ ")))
+		if sec.Summary != "" {
+			section("この箇所で起こっている変化")
+			para(sec.Summary)
+		}
+		if len(sec.ReviewPoints) > 0 {
+			section("レビュー観点")
+			for _, p := range sec.ReviewPoints {
+				b.WriteString(bullet(p, width, styleGuideWarn.Render("✔ ")))
+			}
+		}
+		if sec.Notes != "" {
+			section("メモ")
+			para(sec.Notes)
+		}
+		if f.Summary != "" {
+			section("ファイル全体")
+			b.WriteString(styleFaint.Render(wrapText(f.Summary, width)))
+			b.WriteString("\n")
+		}
+	} else {
+		if f.Summary != "" {
+			section("この差分で起こっている変化")
+			para(f.Summary)
+		}
+		if len(f.ReviewPoints) > 0 {
+			section("レビュー観点")
+			for _, p := range f.ReviewPoints {
+				b.WriteString(bullet(p, width, styleGuideWarn.Render("✔ ")))
+			}
 		}
 	}
 
@@ -60,7 +93,7 @@ func renderGuide(st *plan.Step, f *plan.File, width int) string {
 		}
 	}
 
-	if f.Notes != "" {
+	if sec == nil && f.Notes != "" {
 		section("メモ")
 		para(f.Notes)
 	}

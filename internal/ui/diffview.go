@@ -29,8 +29,8 @@ const (
 // diffLine is one parsed row of a unified diff.
 type diffLine struct {
 	kind  diffLineKind
-	oldNo int // 1-based line number in the old file; 0 when absent
-	newNo int // 1-based line number in the new file; 0 when absent
+	oldNo int    // 1-based line number in the old file; 0 when absent
+	newNo int    // 1-based line number in the new file; 0 when absent
 	text  string // content without the leading diff marker, tabs expanded
 	hiLo  int    // rune range within text emphasized as the changed part
 	hiHi  int
@@ -147,8 +147,18 @@ func markPair(d, a *diffLine) {
 // the diff pane. Text that is not a unified diff (error messages, binary
 // notices) is passed through as-is.
 func renderDiff(diff string, width int) string {
+	s, _ := renderDiffSection(diff, width, 0, 0, false)
+	return s
+}
+
+// renderDiffSection renders a diff like renderDiff, additionally marking
+// the file lines start..end (new-file numbers, or old-file when useOld is
+// set) with a bar in the left margin. The second return value is the row
+// index where the marked range begins, for scrolling it into view.
+// start == 0 disables marking.
+func renderDiffSection(diff string, width, start, end int, useOld bool) (string, int) {
 	if strings.TrimSpace(diff) == "" {
-		return styleFaint.Render("(差分がありません)")
+		return styleFaint.Render("(差分がありません)"), 0
 	}
 	lines := parseDiff(diff)
 	if !hasHunk(lines) {
@@ -156,7 +166,21 @@ func renderDiff(diff string, width int) string {
 		for i := range raw {
 			raw[i] = truncate.StringWithTail(expandTabs(raw[i]), uint(width), "…")
 		}
-		return strings.Join(raw, "\n")
+		return strings.Join(raw, "\n"), 0
+	}
+
+	var marked []bool
+	offset := 0
+	if start > 0 {
+		marked = markSection(lines, start, end, useOld)
+		for i, m := range marked {
+			if m {
+				offset = i
+				break
+			}
+		}
+		// One column goes to the section bar.
+		width--
 	}
 
 	numW := numberWidth(lines)
@@ -175,9 +199,49 @@ func renderDiff(diff string, width int) string {
 		if i > 0 {
 			b.WriteByte('\n')
 		}
+		if marked != nil {
+			if marked[i] {
+				b.WriteString(styleSectionBar.Render("▎"))
+			} else {
+				b.WriteByte(' ')
+			}
+		}
 		b.WriteString(renderDiffLine(l, numW, cols, width))
 	}
-	return b.String()
+	return b.String(), offset
+}
+
+// markSection flags the rows whose file line number falls in start..end.
+// Line numbers are taken from the new file (or the old file when useOld
+// is set); pure deletion rows in new-file mode (and pure additions in
+// old-file mode) carry no such number, so they inherit membership from
+// the position they sit at. end == 0 means a single line.
+func markSection(lines []diffLine, start, end int, useOld bool) []bool {
+	if end < start {
+		end = start
+	}
+	in := func(n int) bool { return n >= start && n <= end }
+	marked := make([]bool, len(lines))
+	last := 0 // last numbered line seen on the tracked side
+	for i, l := range lines {
+		n := l.newNo
+		other := l.oldNo
+		if useOld {
+			n, other = l.oldNo, l.newNo
+		}
+		switch {
+		case l.kind == diffHunk, l.kind == diffMeta:
+			// never marked
+		case n != 0:
+			marked[i] = in(n)
+			last = n
+		case other != 0:
+			// A row on the opposite side only: it sits between tracked
+			// lines `last` and `last+1`.
+			marked[i] = in(last + 1)
+		}
+	}
+	return marked
 }
 
 func hasHunk(lines []diffLine) bool {

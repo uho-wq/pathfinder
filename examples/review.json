@@ -37,10 +37,26 @@
           "path": "internal/service/invitation.go",
           "status": "added",
           "summary": "招待の作成(CreateInvitation)と受諾(AcceptInvitation)を実装。作成時に重複招待をチェックし、受諾時にトークン検証と有効期限チェックを行う。",
-          "review_points": [
-            "重複チェックと作成の間にレースコンディションがないか(トランザクション境界)",
-            "期限切れトークンでの受諾が確実に拒否されるか",
-            "メール送信失敗時に招待レコードがロールバックされるか"
+          "sections": [
+            {
+              "title": "CreateInvitation: 招待の作成とメール送信",
+              "start_line": 3,
+              "end_line": 6,
+              "summary": "招待レコードを作成し、招待メールを送信する。重複招待のチェックを作成前に行う。",
+              "review_points": [
+                "重複チェックと作成の間にレースコンディションがないか(トランザクション境界)",
+                "メール送信失敗時に招待レコードがロールバックされるか"
+              ]
+            },
+            {
+              "title": "AcceptInvitation: トークン検証と受諾",
+              "start_line": 8,
+              "end_line": 9,
+              "summary": "トークンを検証し、有効期限内であればメンバーシップを有効化する。",
+              "review_points": [
+                "期限切れトークンでの受諾が確実に拒否されるか"
+              ]
+            }
           ],
           "dependencies": [
             "internal/model/invitation.go の Invitation 型",

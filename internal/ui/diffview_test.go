@@ -126,6 +126,54 @@ func TestRenderDiffPassesThroughNonDiffText(t *testing.T) {
 	}
 }
 
+func TestMarkSectionNewSide(t *testing.T) {
+	lines := parseDiff(sampleDiff)
+	marked := markSection(lines, 11, 12, false)
+
+	// New-file lines 11-12 are the two added lines; the deletion they
+	// replace sits at the same position and is marked with them.
+	want := []bool{false, false, true, true, true, false}
+	if len(marked) != len(want) {
+		t.Fatalf("got %d marks, want %d", len(marked), len(want))
+	}
+	for i := range want {
+		if marked[i] != want[i] {
+			t.Errorf("marked[%d] = %v, want %v (line %+v)", i, marked[i], want[i], lines[i])
+		}
+	}
+}
+
+func TestMarkSectionOldSide(t *testing.T) {
+	lines := parseDiff(sampleDiff)
+	marked := markSection(lines, 11, 0, true)
+	// Old-file line 11 is exactly the deleted line.
+	for i, l := range lines {
+		want := l.kind == diffDel
+		if marked[i] != want {
+			t.Errorf("marked[%d] = %v, want %v (line %+v)", i, marked[i], want, l)
+		}
+	}
+}
+
+func TestRenderDiffSectionBarAndOffset(t *testing.T) {
+	out, off := renderDiffSection(sampleDiff, 80, 11, 12, false)
+	if off != 2 {
+		t.Errorf("offset = %d, want 2 (first marked row)", off)
+	}
+	bars := strings.Count(out, "▎")
+	if bars != 3 {
+		t.Errorf("marked rows = %d, want 3:\n%s", bars, out)
+	}
+}
+
+func TestRenderDiffSectionWithoutRangeMatchesRenderDiff(t *testing.T) {
+	plain := renderDiff(sampleDiff, 80)
+	sect, off := renderDiffSection(sampleDiff, 80, 0, 0, false)
+	if plain != sect || off != 0 {
+		t.Error("start_line 0 should render exactly like renderDiff")
+	}
+}
+
 func TestRenderDiffKeepsMeaningfulMeta(t *testing.T) {
 	d := "diff --git a/new.go b/new.go\nnew file mode 100644\nindex 000..111\n--- /dev/null\n+++ b/new.go\n@@ -0,0 +1,1 @@\n+package main\n"
 	out := renderDiff(d, 80)

@@ -30,14 +30,17 @@ type rowKind int
 const (
 	rowStep rowKind = iota
 	rowFile
+	rowSection
 )
 
-// row is one visible line of the tree pane, either a step header or a
-// selectable file.
+// row is one visible line of the tree pane: a step header, a file, or a
+// section inside a file. The cursor rests on units — sections, or files
+// without sections; a file that has sections is just a header.
 type row struct {
 	kind rowKind
 	step int
 	file int
+	sec  int
 }
 
 // Model is the Bubble Tea model for the whole application.
@@ -58,7 +61,8 @@ type Model struct {
 	treeW, treeH  int
 	ready         bool
 
-	diffCache map[string]string
+	diffCache  map[string]string
+	diffOffset int // row where the selected section starts in the diff
 }
 
 // New builds the application model. repoDir overrides the plan's
@@ -76,12 +80,31 @@ func New(p *plan.Plan, st *plan.State, repoDir string) *Model {
 	}
 	for i, s := range p.Steps {
 		m.rows = append(m.rows, row{kind: rowStep, step: i})
-		for j := range s.Files {
+		for j, f := range s.Files {
 			m.rows = append(m.rows, row{kind: rowFile, step: i, file: j})
+			for k := range f.Sections {
+				m.rows = append(m.rows, row{kind: rowSection, step: i, file: j, sec: k})
+			}
 		}
 	}
-	m.cursor = m.nextFileRow(-1, +1)
+	m.cursor = m.nextUnitRow(-1, +1)
 	return m
+}
+
+// isUnit reports whether the row at index i is a reviewable unit the
+// cursor can rest on.
+func (m *Model) isUnit(i int) bool {
+	if i < 0 || i >= len(m.rows) {
+		return false
+	}
+	r := m.rows[i]
+	switch r.kind {
+	case rowSection:
+		return true
+	case rowFile:
+		return len(m.plan.Steps[r.step].Files[r.file].Sections) == 0
+	}
+	return false
 }
 
 func (m *Model) Init() tea.Cmd { return nil }
@@ -118,17 +141,17 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "n":
-		m.moveFile(+1)
+		m.moveOtherFile(+1)
 		return m, nil
 	case "p":
-		m.moveFile(-1)
+		m.moveOtherFile(-1)
 		return m, nil
 
 	case " ", "r":
-		if f := m.selectedFile(); f != nil {
-			m.state.Toggle(f.Path)
+		if key := m.selectedKey(); key != "" {
+			m.state.Toggle(key)
 			if msg.String() == " " {
-				m.moveFile(+1)
+				m.moveUnit(+1)
 			}
 		}
 		return m, nil
@@ -144,14 +167,14 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case paneTree:
 		switch msg.String() {
 		case "j", "down":
-			m.moveFile(+1)
+			m.moveUnit(+1)
 		case "k", "up":
-			m.moveFile(-1)
+			m.moveUnit(-1)
 		case "g":
-			m.cursor = m.nextFileRow(-1, +1)
+			m.cursor = m.nextUnitRow(-1, +1)
 			m.loadSelection()
 		case "G":
-			m.cursor = m.nextFileRow(len(m.rows), -1)
+			m.cursor = m.nextUnitRow(len(m.rows), -1)
 			m.loadSelection()
 		}
 	case paneDiff:
@@ -180,22 +203,47 @@ func (m *Model) scrollKeys(vp viewport.Model, msg tea.KeyMsg) viewport.Model {
 	return vp
 }
 
-// nextFileRow returns the index of the first rowFile found walking from
-// `from` (exclusive) in direction dir, or -1 wrapped to current position.
-func (m *Model) nextFileRow(from, dir int) int {
+// nextUnitRow returns the index of the first unit row found walking from
+// `from` (exclusive) in direction dir, or `from` when there is none.
+func (m *Model) nextUnitRow(from, dir int) int {
 	for i := from + dir; i >= 0 && i < len(m.rows); i += dir {
-		if m.rows[i].kind == rowFile {
+		if m.isUnit(i) {
 			return i
 		}
 	}
 	return from
 }
 
-func (m *Model) moveFile(dir int) {
-	next := m.nextFileRow(m.cursor, dir)
+func (m *Model) moveUnit(dir int) {
+	next := m.nextUnitRow(m.cursor, dir)
 	if next != m.cursor && next >= 0 && next < len(m.rows) {
 		m.cursor = next
 		m.loadSelection()
+	}
+}
+
+// moveOtherFile jumps to the first unit of the next (or previous) file,
+// skipping the remaining sections of the current one.
+func (m *Model) moveOtherFile(dir int) {
+	cur := m.cursor
+	if cur < 0 || cur >= len(m.rows) {
+		return
+	}
+	from := m.rows[cur]
+	for i := cur + dir; i >= 0 && i < len(m.rows); i += dir {
+		r := m.rows[i]
+		if !m.isUnit(i) || (r.step == from.step && r.file == from.file) {
+			continue
+		}
+		// Walking backwards lands on a file's last section; rewind to
+		// its first unit so files are always entered from the top.
+		for dir < 0 && i > 0 && m.isUnit(i-1) &&
+			m.rows[i-1].step == r.step && m.rows[i-1].file == r.file {
+			i--
+		}
+		m.cursor = i
+		m.loadSelection()
+		return
 	}
 }
 
@@ -204,10 +252,35 @@ func (m *Model) selectedFile() *plan.File {
 		return nil
 	}
 	r := m.rows[m.cursor]
-	if r.kind != rowFile {
+	if r.kind != rowFile && r.kind != rowSection {
 		return nil
 	}
 	return &m.plan.Steps[r.step].Files[r.file]
+}
+
+// selectedSection returns the section under the cursor and its index,
+// or nil when the cursor is on a whole-file unit.
+func (m *Model) selectedSection() (*plan.Section, int) {
+	if m.cursor < 0 || m.cursor >= len(m.rows) {
+		return nil, -1
+	}
+	r := m.rows[m.cursor]
+	if r.kind != rowSection {
+		return nil, -1
+	}
+	return &m.plan.Steps[r.step].Files[r.file].Sections[r.sec], r.sec
+}
+
+// selectedKey is the state key of the unit under the cursor.
+func (m *Model) selectedKey() string {
+	f := m.selectedFile()
+	if f == nil {
+		return ""
+	}
+	if _, i := m.selectedSection(); i >= 0 {
+		return f.SectionKey(i)
+	}
+	return f.Path
 }
 
 func (m *Model) selectedStep() *plan.Step {
@@ -217,14 +290,22 @@ func (m *Model) selectedStep() *plan.Step {
 	return &m.plan.Steps[m.rows[m.cursor].step]
 }
 
-// loadSelection refreshes both viewports for the file under the cursor
-// and resets their scroll position.
+// loadSelection refreshes both viewports for the unit under the cursor,
+// scrolls the diff to the selected section, and resets the guide.
 func (m *Model) loadSelection() {
 	if !m.ready {
 		return
 	}
 	m.refreshContent()
 	m.diff.GotoTop()
+	if m.diffOffset > 0 {
+		// Leave a couple of context rows above the section start.
+		off := m.diffOffset - 2
+		if off < 0 {
+			off = 0
+		}
+		m.diff.SetYOffset(off)
+	}
 	m.guide.GotoTop()
 	m.scrollTreeIntoView()
 }
@@ -234,12 +315,21 @@ func (m *Model) loadSelection() {
 func (m *Model) refreshContent() {
 	f := m.selectedFile()
 	st := m.selectedStep()
+	m.diffOffset = 0
 	if f == nil || st == nil {
 		m.guide.SetContent(renderOverview(m.plan, m.guide.Width))
 		return
 	}
-	m.diff.SetContent(renderDiff(m.diffFor(f), m.diff.Width))
-	m.guide.SetContent(renderGuide(st, f, m.guide.Width))
+	sec, secIdx := m.selectedSection()
+	if sec != nil {
+		content, off := renderDiffSection(m.diffFor(f), m.diff.Width,
+			sec.StartLine, sec.EndLine, f.Status == "deleted")
+		m.diff.SetContent(content)
+		m.diffOffset = off
+	} else {
+		m.diff.SetContent(renderDiff(m.diffFor(f), m.diff.Width))
+	}
+	m.guide.SetContent(renderGuide(st, f, sec, secIdx, m.guide.Width))
 }
 
 func (m *Model) diffFor(f *plan.File) string {
@@ -326,7 +416,7 @@ func (m *Model) View() string {
 
 func (m *Model) renderHeader() string {
 	done := m.state.CountReviewed(m.plan)
-	total := m.plan.TotalFiles()
+	total := m.plan.TotalUnits()
 	progress := fmt.Sprintf(" %d/%d レビュー済 ", done, total)
 
 	title := m.plan.Title
@@ -369,13 +459,13 @@ func (m *Model) renderTree() string {
 			line = styleStep.Render(truncate.StringWithTail(
 				fmt.Sprintf("%d. %s", r.step+1, m.plan.Steps[r.step].Name), uint(m.treeW), "…"))
 		case rowFile:
-			f := m.plan.Steps[r.step].Files[r.file]
+			f := &m.plan.Steps[r.step].Files[r.file]
 			name := truncate.StringWithTail(f.Path, uint(m.treeW-6), "…")
 			if i == m.cursor {
 				// The cursor line is styled as a whole; nested styles
 				// would reset its background mid-line.
 				mark := "  "
-				if m.state.Reviewed[f.Path] {
+				if m.state.FileReviewed(f) {
 					mark = "✓ "
 				}
 				line = fmt.Sprintf(" %s%s %s", mark, plainStatus(f.Status), name)
@@ -385,10 +475,32 @@ func (m *Model) renderTree() string {
 				line = styleCursor.Render(line)
 			} else {
 				mark := "  "
-				if m.state.Reviewed[f.Path] {
+				if m.state.FileReviewed(f) {
 					mark = styleReviewed.Render("✓ ")
 				}
 				line = fmt.Sprintf(" %s%s %s", mark, statusIcon(f.Status), name)
+			}
+		case rowSection:
+			f := &m.plan.Steps[r.step].Files[r.file]
+			sec := f.Sections[r.sec]
+			name := truncate.StringWithTail(sec.Title, uint(m.treeW-8), "…")
+			reviewed := m.state.Reviewed[f.SectionKey(r.sec)]
+			if i == m.cursor {
+				mark := "  "
+				if reviewed {
+					mark = "✓ "
+				}
+				line = fmt.Sprintf("    %s· %s", mark, name)
+				if pad := m.treeW - lipgloss.Width(line); pad > 0 {
+					line += strings.Repeat(" ", pad)
+				}
+				line = styleCursor.Render(line)
+			} else {
+				mark := "  "
+				if reviewed {
+					mark = styleReviewed.Render("✓ ")
+				}
+				line = fmt.Sprintf("    %s%s %s", mark, styleFaint.Render("·"), name)
 			}
 		}
 		lines = append(lines, line)
