@@ -4,50 +4,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/muesli/reflow/truncate"
 	"github.com/muesli/reflow/wordwrap"
 	"github.com/muesli/reflow/wrap"
 
 	"github.com/uho-wq/pathfinder/internal/plan"
 )
-
-// renderDiff colors a unified diff line by line, truncating each line to
-// the pane width. Lines are styled after truncation so ANSI sequences are
-// never cut mid-escape.
-func renderDiff(diff string, width int) string {
-	if strings.TrimSpace(diff) == "" {
-		return styleFaint.Render("(差分がありません)")
-	}
-	lines := strings.Split(strings.TrimRight(diff, "\n"), "\n")
-	var b strings.Builder
-	for i, line := range lines {
-		if i > 0 {
-			b.WriteByte('\n')
-		}
-		line = strings.ReplaceAll(line, "\t", "    ")
-		line = truncate.StringWithTail(line, uint(width), "…")
-		switch {
-		case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"):
-			b.WriteString(styleDiffMeta.Render(line))
-		case strings.HasPrefix(line, "@@"):
-			b.WriteString(styleDiffHunk.Render(line))
-		case strings.HasPrefix(line, "+"):
-			b.WriteString(styleDiffAdd.Render(line))
-		case strings.HasPrefix(line, "-"):
-			b.WriteString(styleDiffDel.Render(line))
-		case strings.HasPrefix(line, "diff --git"),
-			strings.HasPrefix(line, "index "),
-			strings.HasPrefix(line, "new file"),
-			strings.HasPrefix(line, "deleted file"),
-			strings.HasPrefix(line, "rename "),
-			strings.HasPrefix(line, "similarity "):
-			b.WriteString(styleDiffMeta.Render(line))
-		default:
-			b.WriteString(line)
-		}
-	}
-	return b.String()
-}
 
 // renderGuide builds the right pane: the AI-authored explanation of the
 // selected file within its review step.
