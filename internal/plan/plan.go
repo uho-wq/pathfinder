@@ -33,7 +33,8 @@ type Step struct {
 	Files       []File `json:"files"`
 }
 
-// File is one reviewable unit inside a step.
+// File groups the sections of one file inside a step. When Sections is
+// empty the file itself is the reviewable unit (v1 plans).
 type File struct {
 	Path   string `json:"path"`
 	Status string `json:"status,omitempty"` // added | modified | deleted | renamed
@@ -49,6 +50,32 @@ type File struct {
 	// Diff optionally embeds a unified diff. When empty, pathfinder
 	// runs `git diff` using the plan's Base/Head.
 	Diff string `json:"diff,omitempty"`
+	// Sections split the file's diff into ordered spots to review one
+	// by one. When present, they replace the file as the unit the
+	// reviewer steps through.
+	Sections []Section `json:"sections,omitempty"`
+}
+
+// Section is one spot inside a file's diff: a hunk, a function, or any
+// contiguous range worth reviewing as a unit.
+type Section struct {
+	Title string `json:"title"`
+	// StartLine / EndLine locate the section in the new file (head
+	// side). For deleted files they refer to the old file. Zero means
+	// the section has no anchor and the diff is shown from the top.
+	StartLine int `json:"start_line,omitempty"`
+	EndLine   int `json:"end_line,omitempty"`
+	// Summary explains what is happening in this section.
+	Summary string `json:"summary,omitempty"`
+	// ReviewPoints are concrete things to check in this section.
+	ReviewPoints []string `json:"review_points,omitempty"`
+	Notes        string   `json:"notes,omitempty"`
+}
+
+// SectionKey returns the state key marking one section reviewed. It
+// includes the index so the same path may appear in several sections.
+func (f *File) SectionKey(i int) string {
+	return fmt.Sprintf("%s#%d", f.Path, i)
 }
 
 // Load reads and validates a plan file.
@@ -80,6 +107,15 @@ func (p *Plan) validate() error {
 			if f.Path == "" {
 				return fmt.Errorf("steps[%d].files[%d]: path is required", i, j)
 			}
+			for k, sec := range f.Sections {
+				if sec.Title == "" {
+					return fmt.Errorf("steps[%d].files[%d].sections[%d]: title is required", i, j, k)
+				}
+				if sec.EndLine != 0 && sec.EndLine < sec.StartLine {
+					return fmt.Errorf("steps[%d].files[%d].sections[%d]: end_line %d < start_line %d",
+						i, j, k, sec.EndLine, sec.StartLine)
+				}
+			}
 			total++
 		}
 	}
@@ -94,6 +130,22 @@ func (p *Plan) TotalFiles() int {
 	n := 0
 	for _, s := range p.Steps {
 		n += len(s.Files)
+	}
+	return n
+}
+
+// TotalUnits returns the number of reviewable units: each section
+// counts as one, and a file without sections counts as one.
+func (p *Plan) TotalUnits() int {
+	n := 0
+	for _, s := range p.Steps {
+		for _, f := range s.Files {
+			if len(f.Sections) > 0 {
+				n += len(f.Sections)
+			} else {
+				n++
+			}
+		}
 	}
 	return n
 }

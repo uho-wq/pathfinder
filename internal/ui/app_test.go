@@ -27,9 +27,10 @@ func TestViewRendersAllPanes(t *testing.T) {
 	view := m.View()
 	for _, want := range []string{
 		"ファイル", "差分", "レビューガイド", // pane titles
-		"ユーザー招待機能の追加",              // header title
-		"0/3 レビュー済",                 // progress
+		"ユーザー招待機能の追加",                  // header title
+		"0/4 レビュー済",                    // progress counts units: 2 files + 2 sections
 		"internal/model/invitation.go", // first file selected
+		"CreateInvitation",             // section row in the tree
 		"レビュー観点",
 	} {
 		if !strings.Contains(view, want) {
@@ -45,25 +46,67 @@ func TestNavigationAndToggle(t *testing.T) {
 		t.Fatalf("initial selection = %v", f)
 	}
 
-	// space marks reviewed and advances to the next file.
+	// space marks reviewed and advances to the next unit: the first
+	// section of the service file.
 	m.handleKey(tea.KeyMsg{Type: tea.KeySpace})
 	if !m.state.Reviewed["internal/model/invitation.go"] {
 		t.Error("space should mark the file reviewed")
 	}
-	if f := m.selectedFile(); f == nil || f.Path != "internal/service/invitation.go" {
-		t.Errorf("space should advance selection, got %v", f)
+	f := m.selectedFile()
+	sec, idx := m.selectedSection()
+	if f == nil || f.Path != "internal/service/invitation.go" || sec == nil || idx != 0 {
+		t.Fatalf("space should advance to first section, got file %v section %d", f, idx)
 	}
 
-	// p goes back.
+	// space on a section marks that section only and moves to the next.
+	m.handleKey(tea.KeyMsg{Type: tea.KeySpace})
+	if !m.state.Reviewed["internal/service/invitation.go#0"] {
+		t.Error("space should mark the section reviewed")
+	}
+	if m.state.Reviewed["internal/service/invitation.go"] {
+		t.Error("section toggle should not mark the whole file")
+	}
+	if _, idx := m.selectedSection(); idx != 1 {
+		t.Errorf("space should advance to next section, got %d", idx)
+	}
+
+	// p jumps back to the previous file's first unit.
 	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
 	if f := m.selectedFile(); f == nil || f.Path != "internal/model/invitation.go" {
-		t.Errorf("p should go back, got %v", f)
+		t.Errorf("p should go back a file, got %v", f)
 	}
 
-	// G jumps to the last file.
+	// n skips over the remaining sections to the next file each time.
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	if f := m.selectedFile(); f == nil || f.Path != "internal/service/invitation.go" {
+		t.Errorf("n should enter the service file, got %v", f)
+	}
+	if _, idx := m.selectedSection(); idx != 0 {
+		t.Errorf("n should land on the file's first section, got %d", idx)
+	}
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	if f := m.selectedFile(); f == nil || f.Path != "internal/handler/invitation.go" {
+		t.Errorf("n should skip sections to the handler file, got %v", f)
+	}
+
+	// G jumps to the last unit.
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
 	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
 	if f := m.selectedFile(); f == nil || f.Path != "internal/handler/invitation.go" {
-		t.Errorf("G should jump to last file, got %v", f)
+		t.Errorf("G should jump to last unit, got %v", f)
+	}
+}
+
+func TestSectionDiffScrollsToSection(t *testing.T) {
+	m := exampleModel(t)
+	// Move to the first section of the service file (line 3 of the
+	// embedded diff) and check the diff viewport scrolled off the top.
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	if _, idx := m.selectedSection(); idx != 0 {
+		t.Fatalf("expected a section selected, got %d", idx)
+	}
+	if m.diffOffset == 0 {
+		t.Error("selecting a section should locate its rows in the diff")
 	}
 }
 

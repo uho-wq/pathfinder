@@ -69,6 +69,8 @@ var (
 	styleDiffCtxLine = lipgloss.NewStyle()
 	styleDiffCtxGut  = lipgloss.NewStyle().Foreground(colorFaint)
 
+	styleSectionBar = lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
+
 	styleGuideHead = lipgloss.NewStyle().
 			Foreground(colorAccent).
 			Bold(true)

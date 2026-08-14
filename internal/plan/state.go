@@ -46,17 +46,40 @@ func (s *State) Toggle(path string) {
 	s.save()
 }
 
-// CountReviewed returns how many of the plan's files are marked reviewed.
+// CountReviewed returns how many of the plan's units (sections, or
+// whole files when a file has no sections) are marked reviewed.
 func (s *State) CountReviewed(p *Plan) int {
 	n := 0
 	for _, st := range p.Steps {
 		for _, f := range st.Files {
-			if s.Reviewed[f.Path] {
-				n++
+			if len(f.Sections) == 0 {
+				if s.Reviewed[f.Path] {
+					n++
+				}
+				continue
+			}
+			for i := range f.Sections {
+				if s.Reviewed[f.SectionKey(i)] {
+					n++
+				}
 			}
 		}
 	}
 	return n
+}
+
+// FileReviewed reports whether a file is fully reviewed: its own mark
+// for section-less files, all section marks otherwise.
+func (s *State) FileReviewed(f *File) bool {
+	if len(f.Sections) == 0 {
+		return s.Reviewed[f.Path]
+	}
+	for i := range f.Sections {
+		if !s.Reviewed[f.SectionKey(i)] {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *State) save() {
