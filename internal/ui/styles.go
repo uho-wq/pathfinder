@@ -49,10 +49,25 @@ var (
 	styleReviewed = lipgloss.NewStyle().Foreground(colorDone)
 	styleFaint    = lipgloss.NewStyle().Foreground(colorFaint)
 
-	styleDiffAdd  = lipgloss.NewStyle().Foreground(colorAdd)
-	styleDiffDel  = lipgloss.NewStyle().Foreground(colorDel)
-	styleDiffHunk = lipgloss.NewStyle().Foreground(colorHunk).Bold(true)
+	// GitHub-style diff rows: tinted line backgrounds, a stronger tint
+	// on the changed segment of paired -/+ lines, and matching gutters.
+	colorAddLineBg = lipgloss.AdaptiveColor{Light: "194", Dark: "22"}
+	colorAddWordBg = lipgloss.AdaptiveColor{Light: "157", Dark: "28"}
+	colorDelLineBg = lipgloss.AdaptiveColor{Light: "224", Dark: "52"}
+	colorDelWordBg = lipgloss.AdaptiveColor{Light: "217", Dark: "88"}
+	colorHunkBg    = lipgloss.AdaptiveColor{Light: "195", Dark: "236"}
+
+	styleDiffHunk = lipgloss.NewStyle().Foreground(colorHunk).Background(colorHunkBg).Bold(true)
 	styleDiffMeta = lipgloss.NewStyle().Foreground(colorFaint)
+
+	styleDiffAddLine = lipgloss.NewStyle().Background(colorAddLineBg)
+	styleDiffAddWord = lipgloss.NewStyle().Background(colorAddWordBg)
+	styleDiffAddGut  = lipgloss.NewStyle().Background(colorAddLineBg).Foreground(colorAdd)
+	styleDiffDelLine = lipgloss.NewStyle().Background(colorDelLineBg)
+	styleDiffDelWord = lipgloss.NewStyle().Background(colorDelWordBg)
+	styleDiffDelGut  = lipgloss.NewStyle().Background(colorDelLineBg).Foreground(colorDel)
+	styleDiffCtxLine = lipgloss.NewStyle()
+	styleDiffCtxGut  = lipgloss.NewStyle().Foreground(colorFaint)
 
 	styleGuideHead = lipgloss.NewStyle().
 			Foreground(colorAccent).
