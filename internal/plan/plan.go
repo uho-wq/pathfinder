@@ -16,6 +16,10 @@ type Plan struct {
 	Version int    `json:"version"`
 	Title   string `json:"title"`
 	Summary string `json:"summary,omitempty"`
+	// Description is the PR's own description (e.g. the PR body on
+	// GitHub), shown in the bottom-right pane. When empty, Summary is
+	// shown there instead.
+	Description string `json:"description,omitempty"`
 	// Base and Head are git revisions used to compute diffs when a file
 	// entry does not embed one. Base is typically the merge target
 	// (e.g. "main"), Head the PR branch. With Head empty, the working

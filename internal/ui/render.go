@@ -120,6 +120,20 @@ func renderOverview(p *plan.Plan, width int) string {
 	return b.String()
 }
 
+// renderDescription builds the bottom-right pane: the PR's own
+// description, falling back to the plan summary when the plan does not
+// carry one.
+func renderDescription(p *plan.Plan, width int) string {
+	text := p.Description
+	if text == "" {
+		text = p.Summary
+	}
+	if text == "" {
+		return styleFaint.Render("(ディスクリプションがありません)")
+	}
+	return wrapText(text, width)
+}
+
 // bullet renders one wrapped list item with a hanging indent.
 func bullet(text string, width int, marker string) string {
 	indent := "  "
