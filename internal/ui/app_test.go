@@ -26,7 +26,8 @@ func TestViewRendersAllPanes(t *testing.T) {
 	m := exampleModel(t)
 	view := m.View()
 	for _, want := range []string{
-		"ファイル", "差分", "レビューガイド", // pane titles
+		"ファイル", "差分", "レビューガイド", "PRディスクリプション", // pane titles
+		"招待トークンのデータモデルを追加",             // PR description in the bottom-right pane
 		"ユーザー招待機能の追加",                  // header title
 		"0/4 レビュー済",                    // progress counts units: 2 files + 2 sections
 		"internal/model/invitation.go", // first file selected
@@ -129,6 +130,13 @@ func TestFocusCycles(t *testing.T) {
 		t.Error("tab should move focus to diff")
 	}
 	m.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+	if m.focus != paneGuide {
+		t.Error("tab should move focus to guide")
+	}
+	m.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+	if m.focus != paneDesc {
+		t.Error("tab should move focus to the description pane")
+	}
 	m.handleKey(tea.KeyMsg{Type: tea.KeyTab})
 	if m.focus != paneTree {
 		t.Error("focus should wrap around to tree")

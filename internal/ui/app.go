@@ -1,6 +1,6 @@
-// Package ui implements the three-pane review TUI: an ordered file tree
-// on the left, the file diff in the center, and the AI-authored review
-// guide on the right.
+// Package ui implements the review TUI: an ordered file tree on the
+// left, the file diff in the center, and on the right the AI-authored
+// review guide with the PR description below it.
 package ui
 
 import (
@@ -22,6 +22,7 @@ const (
 	paneTree pane = iota
 	paneDiff
 	paneGuide
+	paneDesc
 	paneCount
 )
 
@@ -56,6 +57,7 @@ type Model struct {
 	focus pane
 	diff  viewport.Model
 	guide viewport.Model
+	desc  viewport.Model // PR description, bottom right
 
 	width, height int
 	treeW, treeH  int
@@ -124,6 +126,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
+
+	case editorFinishedMsg:
+		// The edit may have changed the working tree; re-derive the diff.
+		delete(m.diffCache, msg.path)
+		m.refreshContent()
+		return m, nil
 	}
 	return m, nil
 }
@@ -156,6 +164,9 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case "e":
+		return m, m.openEditor()
+
 	case "enter":
 		if m.focus == paneTree {
 			m.focus = paneDiff
@@ -181,6 +192,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.diff = m.scrollKeys(m.diff, msg)
 	case paneGuide:
 		m.guide = m.scrollKeys(m.guide, msg)
+	case paneDesc:
+		m.desc = m.scrollKeys(m.desc, msg)
 	}
 	return m, nil
 }
@@ -316,6 +329,7 @@ func (m *Model) refreshContent() {
 	f := m.selectedFile()
 	st := m.selectedStep()
 	m.diffOffset = 0
+	m.desc.SetContent(renderDescription(m.plan, m.desc.Width))
 	if f == nil || st == nil {
 		m.guide.SetContent(renderOverview(m.plan, m.guide.Width))
 		return
@@ -390,10 +404,29 @@ func (m *Model) layout() {
 	m.treeW = treeW
 	m.treeH = contentH
 
+	// The right column stacks the guide over the PR description; the
+	// description pane costs 3 extra rows for its own border and title.
+	descH := contentH * 30 / 100
+	if descH < 3 {
+		descH = 3
+	}
+	if descH > 12 {
+		descH = 12
+	}
+	guideH := contentH - descH - 3
+	if guideH < 3 {
+		guideH = 3
+		if descH = contentH - guideH - 3; descH < 1 {
+			descH = 1
+		}
+	}
+
 	m.diff.Width = diffW
 	m.diff.Height = contentH
 	m.guide.Width = guideW
-	m.guide.Height = contentH
+	m.guide.Height = guideH
+	m.desc.Width = guideW
+	m.desc.Height = descH
 	m.scrollTreeIntoView()
 }
 
@@ -406,10 +439,12 @@ func (m *Model) View() string {
 	tree := m.renderPane(paneTree, "ファイル", m.renderTree(), m.treeW, m.treeH)
 	diff := m.renderPane(paneDiff, "差分", m.diff.View(), m.diff.Width, m.diff.Height)
 	guide := m.renderPane(paneGuide, "レビューガイド", m.guide.View(), m.guide.Width, m.guide.Height)
+	desc := m.renderPane(paneDesc, "PRディスクリプション", m.desc.View(), m.desc.Width, m.desc.Height)
+	right := lipgloss.JoinVertical(lipgloss.Left, guide, desc)
 
-	body := lipgloss.JoinHorizontal(lipgloss.Top, tree, diff, guide)
+	body := lipgloss.JoinHorizontal(lipgloss.Top, tree, diff, right)
 	footer := styleFooter.Render(
-		"tab/h/l: ペイン移動  j/k: 選択/スクロール  space: レビュー済→次へ  r: 済トグル  n/p: 次/前ファイル  q: 終了")
+		"tab/h/l: ペイン移動  j/k: 選択/スクロール  space: レビュー済→次へ  r: 済トグル  n/p: 次/前ファイル  e: エディタで開く  q: 終了")
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
 }

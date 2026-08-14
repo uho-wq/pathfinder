@@ -26,6 +26,7 @@
   "version": 1,
   "title": "PRタイトルまたは変更の一言要約",
   "summary": "このPR全体で何を達成しようとしているか(2〜4文)",
+  "description": "PR本文(ディスクリプション)をそのまま。取得できなければ省略",
   "base": "main",
   "head": "",
   "steps": [
@@ -69,6 +70,7 @@
 ## 注意
 
 - `base` はマージ先ブランチ名。`head` は空にすると作業ツリーとの比較、ブランチ名を入れるとそのブランチとの three-dot 比較になる。PRレビューでは `head` にPRブランチ名を入れるのが確実
+- `description` にはPRの本文を加工せずに入れる(`gh pr view --json body` 等で取得できる場合)。TUIの右下ペインにそのまま表示される
 - diffはpathfinderが実行時に `git diff` で取得するので、プランに埋め込む必要はない(git外のレビューでは各fileの `diff` フィールドに unified diff を埋め込める)
 - `dependencies` / `dependents` は実際にコードを検索して確認した事実を書く。推測で書かない
 - `review_points` は「よく見てください」のような一般論ではなく、その差分固有の確認事項を書く
