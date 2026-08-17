@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/uho-wq/pathfinder/internal/plan"
 )
@@ -129,6 +130,57 @@ func TestFocusCycles(t *testing.T) {
 		m.handleKey(tea.KeyMsg{Type: tea.KeyTab})
 		if m.focus != want {
 			t.Errorf("tab: focus = %d, want %d", m.focus, want)
+		}
+	}
+}
+
+func TestFocusedPaneExpands(t *testing.T) {
+	m := exampleModel(t)
+
+	// The tree starts focused, so its column holds its expanded width;
+	// moving focus to the diff shrinks it back and widens the diff.
+	treeFocusedW := m.treeW
+	diffBeforeW := m.diff.Width
+	m.handleKey(tea.KeyMsg{Type: tea.KeyTab}) // -> diff
+	if m.treeW >= treeFocusedW {
+		t.Errorf("unfocusing the tree should narrow it: %d -> %d", treeFocusedW, m.treeW)
+	}
+	if m.diff.Width <= diffBeforeW {
+		t.Errorf("focusing the diff should widen it: %d -> %d", diffBeforeW, m.diff.Width)
+	}
+
+	calleeBeforeW := m.callee.Width
+	m.handleKey(tea.KeyMsg{Type: tea.KeyTab}) // -> callee
+	if m.callee.Width <= calleeBeforeW {
+		t.Errorf("focusing the callee pane should widen it: %d -> %d", calleeBeforeW, m.callee.Width)
+	}
+
+	guideBeforeW := m.guide.Width
+	m.handleKey(tea.KeyMsg{Type: tea.KeyTab}) // -> guide
+	if m.guide.Width <= guideBeforeW {
+		t.Errorf("focusing the guide should widen it: %d -> %d", guideBeforeW, m.guide.Width)
+	}
+
+	descBeforeH := m.desc.Height
+	m.handleKey(tea.KeyMsg{Type: tea.KeyTab}) // -> desc
+	if m.desc.Height <= descBeforeH {
+		t.Errorf("focusing the description should heighten it: %d -> %d", descBeforeH, m.desc.Height)
+	}
+
+	askBeforeH := m.askView.Height
+	m.handleKey(tea.KeyMsg{Type: tea.KeyTab}) // -> ask
+	if m.askView.Height <= askBeforeH {
+		t.Errorf("focusing the ask pane should heighten it: %d -> %d", askBeforeH, m.askView.Height)
+	}
+	if m.treeW != treeFocusedW {
+		t.Errorf("the ask pane shares the left column: treeW = %d, want %d", m.treeW, treeFocusedW)
+	}
+
+	// The expanded layout still fits the terminal.
+	m.handleKey(tea.KeyMsg{Type: tea.KeyTab}) // -> tree
+	for _, line := range strings.Split(m.View(), "\n") {
+		if w := lipgloss.Width(line); w > m.width {
+			t.Fatalf("view line overflows terminal: %d > %d", w, m.width)
 		}
 	}
 }

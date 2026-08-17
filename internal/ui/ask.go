@@ -132,7 +132,7 @@ func (m *Model) handleAskKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "shift+tab":
 		return m, m.cycleFocus(-1)
 	case "esc":
-		m.focus = paneTree
+		m.setFocus(paneTree)
 		m.askInput.Blur()
 		return m, nil
 	case "enter":
