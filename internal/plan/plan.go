@@ -9,7 +9,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 )
+
+// BranchFileName maps a git branch name to the plan file name the
+// generation prompt writes, so plans for different branches don't
+// overwrite each other: "feature/login" -> "feature-login.json".
+func BranchFileName(branch string) string {
+	return strings.ReplaceAll(branch, "/", "-") + ".json"
+}
 
 // Plan is the top-level document loaded from a review plan file.
 type Plan struct {
