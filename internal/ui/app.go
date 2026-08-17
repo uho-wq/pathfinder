@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -25,6 +27,7 @@ const (
 	paneCallee
 	paneGuide
 	paneDesc
+	paneAsk
 	paneCount
 )
 
@@ -62,6 +65,15 @@ type Model struct {
 	guide  viewport.Model
 	desc   viewport.Model // PR description, bottom right
 
+	// The ask pane (bottom left) sends questions to the claude CLI with
+	// the current selection as context and shows the transcript.
+	askView  viewport.Model
+	askInput textinput.Model
+	askSpin  spinner.Model
+	askLog   []askEntry
+	asking   bool
+	askID    int
+
 	// showCallees keeps the callee pane out of the layout (and the
 	// focus cycle) for plans that carry no callee info at all.
 	showCallees bool
@@ -90,6 +102,11 @@ func New(p *plan.Plan, st *plan.State, repoDir string) *Model {
 		srcCache:    map[string]string{},
 		showCallees: p.HasCallees(),
 	}
+	m.askInput = textinput.New()
+	m.askInput.Prompt = "> "
+	m.askInput.Placeholder = "Claudeに質問..."
+	m.askSpin = spinner.New(spinner.WithSpinner(spinner.MiniDot),
+		spinner.WithStyle(lipgloss.NewStyle().Foreground(colorAccent)))
 	for i, s := range p.Steps {
 		m.rows = append(m.rows, row{kind: rowStep, step: i})
 		for j, f := range s.Files {
@@ -146,21 +163,51 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.refreshContent()
 		return m, nil
+
+	case askResultMsg:
+		if msg.id != m.askID || len(m.askLog) == 0 {
+			return m, nil
+		}
+		m.asking = false
+		e := &m.askLog[len(m.askLog)-1]
+		if msg.err != nil {
+			e.errText = msg.err.Error()
+		} else {
+			e.answer = msg.answer
+		}
+		m.refreshAskView(true)
+		return m, nil
+
+	case spinner.TickMsg:
+		if !m.asking {
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.askSpin, cmd = m.askSpin.Update(msg)
+		m.refreshAskView(false)
+		return m, cmd
 	}
 	return m, nil
 }
 
 func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// While the ask pane is focused keys are typed text, not bindings.
+	if m.focus == paneAsk {
+		return m.handleAskKey(msg)
+	}
+
 	switch msg.String() {
 	case "q", "ctrl+c":
 		return m, tea.Quit
 
 	case "tab", "l", "right":
-		m.cycleFocus(+1)
-		return m, nil
+		return m, m.cycleFocus(+1)
 	case "shift+tab", "h", "left":
-		m.cycleFocus(-1)
-		return m, nil
+		return m, m.cycleFocus(-1)
+
+	case "a":
+		m.focus = paneAsk
+		return m, m.askInput.Focus()
 
 	case "n":
 		m.moveOtherFile(+1)
@@ -215,13 +262,19 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // cycleFocus moves focus to the neighboring pane, skipping the callee
-// pane when it is not part of the layout.
-func (m *Model) cycleFocus(dir int) {
+// pane when it is not part of the layout, and keeps the ask input's
+// focus state (its cursor) in sync.
+func (m *Model) cycleFocus(dir int) tea.Cmd {
 	step := func() { m.focus = (m.focus + pane(dir) + paneCount) % paneCount }
 	step()
 	if m.focus == paneCallee && !m.showCallees {
 		step()
 	}
+	if m.focus == paneAsk {
+		return m.askInput.Focus()
+	}
+	m.askInput.Blur()
+	return nil
 }
 
 func (m *Model) scrollKeys(vp viewport.Model, msg tea.KeyMsg) viewport.Model {
@@ -357,6 +410,7 @@ func (m *Model) refreshContent() {
 	st := m.selectedStep()
 	m.diffOffset = 0
 	m.desc.SetContent(renderDescription(m.plan, m.desc.Width))
+	m.refreshAskView(false)
 	if f == nil || st == nil {
 		m.guide.SetContent(renderOverview(m.plan, m.guide.Width))
 		if m.showCallees {
@@ -465,8 +519,29 @@ func (m *Model) layout() {
 		diffW = 20
 	}
 
+	// The left column stacks the tree over the ask pane; like the
+	// description pane, the ask pane costs 3 extra rows for its own
+	// border and title.
+	askH := contentH * 30 / 100
+	if askH < 5 {
+		askH = 5
+	}
+	if askH > 14 {
+		askH = 14
+	}
+	treeH := contentH - askH - 3
+	if treeH < 3 {
+		treeH = 3
+		if askH = contentH - treeH - 3; askH < 2 {
+			askH = 2
+		}
+	}
+
 	m.treeW = treeW
-	m.treeH = contentH
+	m.treeH = treeH
+	m.askView.Width = treeW
+	m.askView.Height = askH - 1 // the input line takes the last row
+	m.askInput.Width = treeW - 4
 
 	// The right column stacks the guide over the PR description; the
 	// description pane costs 3 extra rows for its own border and title.
@@ -503,19 +578,22 @@ func (m *Model) View() string {
 
 	header := m.renderHeader()
 	tree := m.renderPane(paneTree, "ファイル", m.renderTree(), m.treeW, m.treeH)
+	askBody := lipgloss.JoinVertical(lipgloss.Left, m.askView.View(), m.renderAskInput())
+	ask := m.renderPane(paneAsk, "Claudeに質問", askBody, m.treeW, m.askView.Height+1)
+	left := lipgloss.JoinVertical(lipgloss.Left, tree, ask)
 	diff := m.renderPane(paneDiff, "差分", m.diff.View(), m.diff.Width, m.diff.Height)
 	guide := m.renderPane(paneGuide, "レビューガイド", m.guide.View(), m.guide.Width, m.guide.Height)
 	desc := m.renderPane(paneDesc, "PRディスクリプション", m.desc.View(), m.desc.Width, m.desc.Height)
 	right := lipgloss.JoinVertical(lipgloss.Left, guide, desc)
 
-	cols := []string{tree, diff}
+	cols := []string{left, diff}
 	if m.showCallees {
 		cols = append(cols, m.renderPane(paneCallee, "呼び出し先", m.callee.View(), m.callee.Width, m.callee.Height))
 	}
 	cols = append(cols, right)
 	body := lipgloss.JoinHorizontal(lipgloss.Top, cols...)
 	footer := styleFooter.Render(
-		"tab/h/l: ペイン移動  j/k: 選択/スクロール  space: レビュー済→次へ  r: 済トグル  n/p: 次/前ファイル  e: エディタで開く  q: 終了")
+		"tab/h/l: ペイン移動  j/k: 選択/スクロール  space: レビュー済→次へ  r: 済トグル  n/p: 次/前ファイル  a: Claudeに質問  e: エディタで開く  q: 終了")
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
 }

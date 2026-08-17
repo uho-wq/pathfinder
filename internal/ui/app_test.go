@@ -26,7 +26,7 @@ func TestViewRendersAllPanes(t *testing.T) {
 	m := exampleModel(t)
 	view := m.View()
 	for _, want := range []string{
-		"ファイル", "差分", "呼び出し先", "レビューガイド", "PRディスクリプション", // pane titles
+		"ファイル", "差分", "呼び出し先", "レビューガイド", "PRディスクリプション", "Claudeに質問", // pane titles
 		"招待トークンのデータモデルを追加",             // PR description in the bottom-right pane
 		"ユーザー招待機能の追加",                  // header title
 		"0/4 レビュー済",                    // progress counts units: 2 files + 2 sections
@@ -125,7 +125,7 @@ func TestFocusCycles(t *testing.T) {
 	if m.focus != paneTree {
 		t.Fatal("initial focus should be tree")
 	}
-	for _, want := range []pane{paneDiff, paneCallee, paneGuide, paneDesc, paneTree} {
+	for _, want := range []pane{paneDiff, paneCallee, paneGuide, paneDesc, paneAsk, paneTree} {
 		m.handleKey(tea.KeyMsg{Type: tea.KeyTab})
 		if m.focus != want {
 			t.Errorf("tab: focus = %d, want %d", m.focus, want)
