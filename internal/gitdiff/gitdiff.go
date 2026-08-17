@@ -46,6 +46,20 @@ func FileDiff(dir, base, head, path string) (string, error) {
 	return string(out), nil
 }
 
+// CurrentBranch returns the name of the checked-out branch, or "" when
+// HEAD is detached or dir is not a git repository.
+func CurrentBranch(dir string) string {
+	cmd := exec.Command("git", "branch", "--show-current")
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
 // FileAt returns the content of a file at the given revision. With rev
 // empty, the working tree copy is read instead, matching FileDiff's
 // convention that an empty head means "compare against the working

@@ -9,7 +9,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 
+	"github.com/uho-wq/pathfinder/internal/gitdiff"
 	"github.com/uho-wq/pathfinder/internal/plan"
 	"github.com/uho-wq/pathfinder/internal/ui"
 )
@@ -23,7 +25,8 @@ var examplePlan string
 const usage = `pathfinder - AIが用意したレビュープランでPRをレビューするTUI
 
 Usage:
-  pathfinder [flags] [plan.json]   プランを開く (省略時: .pathfinder/review.json, review.json)
+  pathfinder [flags] [plan.json]   プランを開く (省略時: .pathfinder/<ブランチ名>.json,
+                                   .pathfinder/review.json, review.json の順に自動検出)
   pathfinder prompt                プラン生成用プロンプトを出力 (Claude Code等に渡す)
   pathfinder example               プランファイルのサンプルを出力
 
@@ -60,9 +63,9 @@ func main() {
 		os.Exit(2)
 	}
 
-	planPath := findPlan(fs.Args())
+	planPath := findPlan(fs.Args(), *repoDir)
 	if planPath == "" {
-		fmt.Fprintln(os.Stderr, "エラー: プランファイルが見つかりません (.pathfinder/review.json / review.json)")
+		fmt.Fprintln(os.Stderr, "エラー: プランファイルが見つかりません (.pathfinder/<ブランチ名>.json / .pathfinder/review.json / review.json)")
 		fmt.Fprintln(os.Stderr, "まず `pathfinder prompt` の内容をAIに渡してプランを生成してください。")
 		os.Exit(1)
 	}
@@ -80,11 +83,19 @@ func main() {
 	}
 }
 
-func findPlan(args []string) string {
+// findPlan resolves the plan file to open: an explicit argument wins,
+// then the current branch's plan (.pathfinder/<branch>.json, slashes
+// replaced with "-"), then the branch-agnostic legacy locations.
+func findPlan(args []string, repoDir string) string {
 	if len(args) > 0 {
 		return args[0]
 	}
-	for _, c := range []string{".pathfinder/review.json", "review.json"} {
+	var candidates []string
+	if branch := gitdiff.CurrentBranch(repoDir); branch != "" {
+		candidates = append(candidates, filepath.Join(".pathfinder", plan.BranchFileName(branch)))
+	}
+	candidates = append(candidates, ".pathfinder/review.json", "review.json")
+	for _, c := range candidates {
 		if _, err := os.Stat(c); err == nil {
 			return c
 		}

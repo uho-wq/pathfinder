@@ -34,7 +34,7 @@ go install github.com/uho-wq/pathfinder@latest
 pathfinder prompt | claude -p --allowedTools "Bash(git:*) Read Grep Glob Write"
 ```
 
-AIがPRの差分を探索し、以下を調べて `.pathfinder/review.json` を書き出す:
+AIがPRの差分を探索し、以下を調べて `.pathfinder/<ブランチ名>.json` を書き出す(ブランチ名の `/` は `-` に置換。ブランチごとにファイルが分かれるので、別ブランチのプランを上書きしない):
 
 - 依存関係に基づく**意味的なレビュー順**(モデル → ロジック → API境界 → テスト)
 - 各ファイルの差分を分割した**レビューすべき箇所の一覧**(行範囲つき、読む順)
@@ -44,7 +44,8 @@ AIがPRの差分を探索し、以下を調べて `.pathfinder/review.json` を�
 ### 2. TUIでレビューする
 
 ```sh
-pathfinder                     # .pathfinder/review.json / review.json を自動検出
+pathfinder                     # 現在のブランチの .pathfinder/<ブランチ名>.json を自動検出
+                               # (なければ .pathfinder/review.json / review.json)
 pathfinder path/to/review.json # 明示指定
 pathfinder -C /path/to/repo    # git diff の実行ディレクトリを指定
 ```
@@ -63,7 +64,7 @@ pathfinder -C /path/to/repo    # git diff の実行ディレクトリを指定
 | `e` | 選択中のファイルの該当行を `$EDITOR` で開く |
 | `q` | 終了 |
 
-レビュー済みマークは `review.state.json` に自動保存され、中断・再開できる。
+レビュー済みマークはプランファイルの隣の `<プラン名>.state.json` に自動保存され、中断・再開できる。
 
 ## プランファイル
 

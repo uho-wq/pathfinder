@@ -121,3 +121,15 @@ func TestStatePath(t *testing.T) {
 		t.Errorf("StatePath = %q", got)
 	}
 }
+
+func TestBranchFileName(t *testing.T) {
+	for branch, want := range map[string]string{
+		"main":          "main.json",
+		"feature/login": "feature-login.json",
+		"a/b/c":         "a-b-c.json",
+	} {
+		if got := BranchFileName(branch); got != want {
+			t.Errorf("BranchFileName(%q) = %q, want %q", branch, got, want)
+		}
+	}
+}
