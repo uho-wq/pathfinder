@@ -206,7 +206,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.cycleFocus(-1)
 
 	case "a":
-		m.focus = paneAsk
+		m.setFocus(paneAsk)
 		return m, m.askInput.Focus()
 
 	case "n":
@@ -230,7 +230,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "enter":
 		if m.focus == paneTree {
-			m.focus = paneDiff
+			m.setFocus(paneDiff)
 		}
 		return m, nil
 	}
@@ -265,16 +265,30 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // pane when it is not part of the layout, and keeps the ask input's
 // focus state (its cursor) in sync.
 func (m *Model) cycleFocus(dir int) tea.Cmd {
-	step := func() { m.focus = (m.focus + pane(dir) + paneCount) % paneCount }
-	step()
-	if m.focus == paneCallee && !m.showCallees {
-		step()
+	next := (m.focus + pane(dir) + paneCount) % paneCount
+	if next == paneCallee && !m.showCallees {
+		next = (next + pane(dir) + paneCount) % paneCount
 	}
+	m.setFocus(next)
 	if m.focus == paneAsk {
 		return m.askInput.Focus()
 	}
 	m.askInput.Blur()
 	return nil
+}
+
+// setFocus moves focus and recomputes the layout: pane sizes depend on
+// which pane is focused, so the viewports must be resized and their
+// contents re-rendered for the new widths.
+func (m *Model) setFocus(p pane) {
+	if m.focus == p {
+		return
+	}
+	m.focus = p
+	if m.ready {
+		m.layout()
+		m.refreshContent()
+	}
 }
 
 func (m *Model) scrollKeys(vp viewport.Model, msg tea.KeyMsg) viewport.Model {
@@ -478,7 +492,11 @@ func (m *Model) scrollTreeIntoView() {
 	}
 }
 
-// layout recomputes pane sizes from the terminal size.
+// layout recomputes pane sizes from the terminal size and the focus:
+// the focused pane's column (and, for the stacked panes, its row) gets
+// a larger share so whatever is being read has room, while the other
+// columns fall back toward their minimums. The diff always absorbs the
+// remaining width, so it grows whenever focus leaves the side panes.
 func (m *Model) layout() {
 	headerH, footerH := 1, 1
 	// Each pane draws a border (2 cols, 2 rows) plus a title line.
@@ -487,34 +505,70 @@ func (m *Model) layout() {
 		contentH = 3
 	}
 
-	treeW := m.width * 22 / 100
+	treePct, treeMax := 22, 40
+	switch m.focus {
+	case paneTree, paneAsk:
+		treePct, treeMax = 30, 48
+	case paneDiff:
+		treePct = 14
+	}
+	treeW := m.width * treePct / 100
 	if treeW < 20 {
 		treeW = 20
 	}
-	if treeW > 40 {
-		treeW = 40
+	if treeW > treeMax {
+		treeW = treeMax
 	}
 	// With the callee pane in the layout, the guide narrows and every
 	// column pays two more border columns.
-	guidePct, borders, calleeW := 30, 6, 0
+	guidePct, guideMax, borders, calleeW := 30, 56, 6, 0
 	if m.showCallees {
 		guidePct, borders = 24, 8
-		calleeW = m.width * 26 / 100
+		calleePct, calleeMax := 26, 48
+		switch m.focus {
+		case paneCallee:
+			calleePct, calleeMax = 36, 72
+		case paneDiff:
+			calleePct = 16
+		}
+		calleeW = m.width * calleePct / 100
 		if calleeW < 24 {
 			calleeW = 24
 		}
-		if calleeW > 48 {
-			calleeW = 48
+		if calleeW > calleeMax {
+			calleeW = calleeMax
 		}
+	}
+	switch m.focus {
+	case paneGuide, paneDesc:
+		guidePct, guideMax = 36, 72
+	case paneDiff:
+		guidePct = 16
 	}
 	guideW := m.width * guidePct / 100
 	if guideW < 24 {
 		guideW = 24
 	}
-	if guideW > 56 {
-		guideW = 56
+	if guideW > guideMax {
+		guideW = guideMax
 	}
 	diffW := m.width - treeW - guideW - calleeW - borders
+	if diffW < 20 {
+		// Give the boosted column's extra width back before letting
+		// the row overflow the terminal.
+		short := 20 - diffW
+		switch {
+		case (m.focus == paneGuide || m.focus == paneDesc) && guideW-short >= 24:
+			guideW -= short
+			diffW = 20
+		case m.focus == paneCallee && calleeW-short >= 24:
+			calleeW -= short
+			diffW = 20
+		case (m.focus == paneTree || m.focus == paneAsk) && treeW-short >= 20:
+			treeW -= short
+			diffW = 20
+		}
+	}
 	if diffW < 20 {
 		diffW = 20
 	}
@@ -522,12 +576,16 @@ func (m *Model) layout() {
 	// The left column stacks the tree over the ask pane; like the
 	// description pane, the ask pane costs 3 extra rows for its own
 	// border and title.
-	askH := contentH * 30 / 100
+	askPct, askMax := 30, 14
+	if m.focus == paneAsk {
+		askPct, askMax = 60, contentH
+	}
+	askH := contentH * askPct / 100
 	if askH < 5 {
 		askH = 5
 	}
-	if askH > 14 {
-		askH = 14
+	if askH > askMax {
+		askH = askMax
 	}
 	treeH := contentH - askH - 3
 	if treeH < 3 {
@@ -545,12 +603,16 @@ func (m *Model) layout() {
 
 	// The right column stacks the guide over the PR description; the
 	// description pane costs 3 extra rows for its own border and title.
-	descH := contentH * 30 / 100
+	descPct, descMax := 30, 12
+	if m.focus == paneDesc {
+		descPct, descMax = 60, contentH
+	}
+	descH := contentH * descPct / 100
 	if descH < 3 {
 		descH = 3
 	}
-	if descH > 12 {
-		descH = 12
+	if descH > descMax {
+		descH = descMax
 	}
 	guideH := contentH - descH - 3
 	if guideH < 3 {
