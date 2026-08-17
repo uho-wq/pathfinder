@@ -40,7 +40,11 @@ type Plan struct {
 
 // Step groups files that should be reviewed together, in order.
 type Step struct {
-	Name        string `json:"name"`
+	Name string `json:"name"`
+	// Summary explains what changed across the whole step's diff.
+	Summary string `json:"summary,omitempty"`
+	// Description is the ordering rationale older plans carried; the
+	// guide falls back to it when Summary is empty.
 	Description string `json:"description,omitempty"`
 	Files       []File `json:"files"`
 }
@@ -54,11 +58,6 @@ type File struct {
 	Summary string `json:"summary,omitempty"`
 	// ReviewPoints are concrete things the reviewer should check.
 	ReviewPoints []string `json:"review_points,omitempty"`
-	// Dependencies lists what this file's changes depend on.
-	Dependencies []string `json:"dependencies,omitempty"`
-	// Dependents lists callers / places affected by this change.
-	Dependents []string `json:"dependents,omitempty"`
-	Notes      string   `json:"notes,omitempty"`
 	// Diff optionally embeds a unified diff. When empty, pathfinder
 	// runs `git diff` using the plan's Base/Head.
 	Diff string `json:"diff,omitempty"`
@@ -84,7 +83,6 @@ type Section struct {
 	Summary string `json:"summary,omitempty"`
 	// ReviewPoints are concrete things to check in this section.
 	ReviewPoints []string `json:"review_points,omitempty"`
-	Notes        string   `json:"notes,omitempty"`
 	// Callees are functions/methods the changed code in this section
 	// calls, shown next to the diff so the reviewer can read their
 	// bodies without leaving the TUI.
