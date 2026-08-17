@@ -10,9 +10,10 @@ import (
 	"github.com/uho-wq/pathfinder/internal/plan"
 )
 
-// renderGuide builds the right pane: the AI-authored explanation of the
-// selected unit — a section of a file, or the whole file — within its
-// review step. sec is nil (and secIdx < 0) for whole-file units.
+// renderGuide builds the right pane: the AI-authored guide for the
+// selected unit — a section of a file, or the whole file — in three fixed
+// parts: what changed across the step, what changed in this unit, and the
+// review points. sec is nil (and secIdx < 0) for whole-file units.
 func renderGuide(st *plan.Step, f *plan.File, sec *plan.Section, secIdx, width int) string {
 	var b strings.Builder
 
@@ -27,16 +28,21 @@ func renderGuide(st *plan.Step, f *plan.File, sec *plan.Section, secIdx, width i
 		b.WriteString(wrapText(s, width))
 		b.WriteString("\n")
 	}
-
-	section("ステップ")
-	para(st.Name)
-	if st.Description != "" {
-		b.WriteString(styleFaint.Render(wrapText(st.Description, width)))
+	faint := func(s string) {
+		b.WriteString(styleFaint.Render(wrapText(s, width)))
 		b.WriteString("\n")
 	}
 
+	section("ステップ全体の変化")
+	faint(st.Name)
+	if st.Summary != "" {
+		para(st.Summary)
+	} else if st.Description != "" {
+		para(st.Description)
+	}
+
+	section("この項目の変化")
 	if sec != nil {
-		section(fmt.Sprintf("箇所 %d/%d", secIdx+1, len(f.Sections)))
 		title := sec.Title
 		if sec.StartLine > 0 {
 			if sec.EndLine > sec.StartLine {
@@ -45,57 +51,23 @@ func renderGuide(st *plan.Step, f *plan.File, sec *plan.Section, secIdx, width i
 				title = fmt.Sprintf("%s (L%d)", title, sec.StartLine)
 			}
 		}
-		para(title)
-
+		faint(fmt.Sprintf("箇所 %d/%d: %s", secIdx+1, len(f.Sections), title))
 		if sec.Summary != "" {
-			section("この箇所で起こっている変化")
 			para(sec.Summary)
 		}
-		if len(sec.ReviewPoints) > 0 {
-			section("レビュー観点")
-			for _, p := range sec.ReviewPoints {
-				b.WriteString(bullet(p, width, styleGuideWarn.Render("✔ ")))
-			}
-		}
-		if sec.Notes != "" {
-			section("メモ")
-			para(sec.Notes)
-		}
-		if f.Summary != "" {
-			section("ファイル全体")
-			b.WriteString(styleFaint.Render(wrapText(f.Summary, width)))
-			b.WriteString("\n")
-		}
-	} else {
-		if f.Summary != "" {
-			section("この差分で起こっている変化")
-			para(f.Summary)
-		}
-		if len(f.ReviewPoints) > 0 {
-			section("レビュー観点")
-			for _, p := range f.ReviewPoints {
-				b.WriteString(bullet(p, width, styleGuideWarn.Render("✔ ")))
-			}
-		}
+	} else if f.Summary != "" {
+		para(f.Summary)
 	}
 
-	if len(f.Dependencies) > 0 {
-		section("依存先")
-		for _, d := range f.Dependencies {
-			b.WriteString(bullet(d, width, styleFaint.Render("→ ")))
-		}
+	points := f.ReviewPoints
+	if sec != nil {
+		points = sec.ReviewPoints
 	}
-
-	if len(f.Dependents) > 0 {
-		section("呼び出し元 / 影響範囲")
-		for _, d := range f.Dependents {
-			b.WriteString(bullet(d, width, styleFaint.Render("← ")))
+	if len(points) > 0 {
+		section("レビュー観点")
+		for _, p := range points {
+			b.WriteString(bullet(p, width, styleGuideWarn.Render("✔ ")))
 		}
-	}
-
-	if sec == nil && f.Notes != "" {
-		section("メモ")
-		para(f.Notes)
 	}
 
 	return b.String()

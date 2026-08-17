@@ -33,6 +33,8 @@ func TestViewRendersAllPanes(t *testing.T) {
 		"0/4 レビュー済",                    // progress counts units: 2 files + 2 sections
 		"internal/model/invitation.go", // first file selected
 		"CreateInvitation",             // section row in the tree
+		"ステップ全体の変化",                    // guide sections
+		"この項目の変化",
 		"レビュー観点",
 	} {
 		if !strings.Contains(view, want) {
