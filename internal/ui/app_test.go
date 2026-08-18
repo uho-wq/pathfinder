@@ -35,6 +35,7 @@ func TestViewRendersAllPanes(t *testing.T) {
 		"CreateInvitation",             // section row in the tree
 		"ステップ全体の変化",                    // guide sections
 		"この項目の変化",
+		"なぜこの処理か",
 		"レビュー観点",
 	} {
 		if !strings.Contains(view, want) {

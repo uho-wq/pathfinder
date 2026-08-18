@@ -14,6 +14,7 @@
           "path": "internal/model/invitation.go",
           "status": "added",
           "summary": "招待を表す Invitation 構造体を新設。トークンは crypto/rand で生成し、有効期限は作成から72時間。ステータスは pending / accepted / expired の3状態。",
+          "rationale": "既存の Membership モデルに状態を持たせる案もあるが、招待は未登録ユーザー宛てでユーザーIDを持てないため、独立したモデルとして切り出したと考えられる。有効期限72時間はPR本文で言及されている運用要件。",
           "review_points": [
             "トークン生成に乱数の偏りがないか(crypto/rand の使い方)",
             "有効期限の判定がUTC基準になっているか",
@@ -37,6 +38,7 @@
               "start_line": 3,
               "end_line": 6,
               "summary": "招待レコードを作成し、招待メールを送信する。重複招待のチェックを作成前に行う。",
+              "rationale": "メール送信を作成の後に置くのは、送信失敗時に招待レコードごとロールバックするため。既存の通知系(PasswordReset)と同じ順序に合わせている。",
               "review_points": [
                 "重複チェックと作成の間にレースコンディションがないか(トランザクション境界)",
                 "メール送信失敗時に招待レコードがロールバックされるか"

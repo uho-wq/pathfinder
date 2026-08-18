@@ -11,9 +11,10 @@ import (
 )
 
 // renderGuide builds the right pane: the AI-authored guide for the
-// selected unit — a section of a file, or the whole file — in three fixed
-// parts: what changed across the step, what changed in this unit, and the
-// review points. sec is nil (and secIdx < 0) for whole-file units.
+// selected unit — a section of a file, or the whole file — in four fixed
+// parts: what changed across the step, what changed in this unit, why
+// the change took this form, and the review points. sec is nil (and
+// secIdx < 0) for whole-file units.
 func renderGuide(st *plan.Step, f *plan.File, sec *plan.Section, secIdx, width int) string {
 	var b strings.Builder
 
@@ -57,6 +58,15 @@ func renderGuide(st *plan.Step, f *plan.File, sec *plan.Section, secIdx, width i
 		}
 	} else if f.Summary != "" {
 		para(f.Summary)
+	}
+
+	rationale := f.Rationale
+	if sec != nil {
+		rationale = sec.Rationale
+	}
+	if rationale != "" {
+		section("なぜこの処理か")
+		para(rationale)
 	}
 
 	points := f.ReviewPoints

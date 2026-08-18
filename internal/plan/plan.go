@@ -56,6 +56,10 @@ type File struct {
 	Status string `json:"status,omitempty"` // added | modified | deleted | renamed
 	// Summary explains what is happening in this file's diff.
 	Summary string `json:"summary,omitempty"`
+	// Rationale explains why the change took this form: the design
+	// intent or constraint behind the implementation, as opposed to
+	// Summary which describes what changed.
+	Rationale string `json:"rationale,omitempty"`
 	// ReviewPoints are concrete things the reviewer should check.
 	ReviewPoints []string `json:"review_points,omitempty"`
 	// Diff optionally embeds a unified diff. When empty, pathfinder
@@ -81,6 +85,9 @@ type Section struct {
 	EndLine   int `json:"end_line,omitempty"`
 	// Summary explains what is happening in this section.
 	Summary string `json:"summary,omitempty"`
+	// Rationale explains why the change took this form (see
+	// File.Rationale).
+	Rationale string `json:"rationale,omitempty"`
 	// ReviewPoints are concrete things to check in this section.
 	ReviewPoints []string `json:"review_points,omitempty"`
 	// Callees are functions/methods the changed code in this section
