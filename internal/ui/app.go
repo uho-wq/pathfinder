@@ -65,6 +65,12 @@ type Model struct {
 	guide  viewport.Model
 	desc   viewport.Model // PR description, bottom right
 
+	// The comment input replaces the footer while the reviewer writes a
+	// comment on the selected unit (key: c). Comments live in the state
+	// file next to the reviewed marks.
+	commentInput textinput.Model
+	commenting   bool
+
 	// The ask pane (bottom left) sends questions to the claude CLI with
 	// the current selection as context and shows the transcript.
 	askView  viewport.Model
@@ -105,6 +111,9 @@ func New(p *plan.Plan, st *plan.State, repoDir string) *Model {
 	m.askInput = textinput.New()
 	m.askInput.Prompt = "> "
 	m.askInput.Placeholder = "Claudeに質問..."
+	m.commentInput = textinput.New()
+	m.commentInput.Prompt = " コメント> "
+	m.commentInput.Placeholder = "Enterで保存 / escでキャンセル"
 	m.askSpin = spinner.New(spinner.WithSpinner(spinner.MiniDot),
 		spinner.WithStyle(lipgloss.NewStyle().Foreground(colorAccent)))
 	for i, s := range p.Steps {
@@ -191,7 +200,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// While the ask pane is focused keys are typed text, not bindings.
+	// While an input is open keys are typed text, not bindings.
+	if m.commenting {
+		return m.handleCommentKey(msg)
+	}
 	if m.focus == paneAsk {
 		return m.handleAskKey(msg)
 	}
@@ -208,6 +220,20 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "a":
 		m.setFocus(paneAsk)
 		return m, m.askInput.Focus()
+
+	case "c":
+		if m.selectedKey() != "" {
+			m.commenting = true
+			m.commentInput.SetValue("")
+			return m, m.commentInput.Focus()
+		}
+		return m, nil
+	case "C":
+		if key := m.selectedKey(); key != "" {
+			m.state.RemoveLastComment(key)
+			m.refreshContent()
+		}
+		return m, nil
 
 	case "n":
 		m.moveOtherFile(+1)
@@ -448,7 +474,7 @@ func (m *Model) refreshContent() {
 		}
 		m.callee.SetContent(renderCallees(callees, m.sourceFor, m.callee.Width))
 	}
-	m.guide.SetContent(renderGuide(st, f, sec, secIdx, m.guide.Width))
+	m.guide.SetContent(renderGuide(st, f, sec, secIdx, m.state.CommentsFor(m.selectedKey()), m.guide.Width))
 }
 
 // sourceFor loads (and caches) the head-side content of a repo-relative
@@ -600,6 +626,7 @@ func (m *Model) layout() {
 	m.askView.Width = treeW
 	m.askView.Height = askH - 1 // the input line takes the last row
 	m.askInput.Width = treeW - 4
+	m.commentInput.Width = m.width - 16
 
 	// The right column stacks the guide over the PR description; the
 	// description pane costs 3 extra rows for its own border and title.
@@ -655,7 +682,11 @@ func (m *Model) View() string {
 	cols = append(cols, right)
 	body := lipgloss.JoinHorizontal(lipgloss.Top, cols...)
 	footer := styleFooter.Render(
-		"tab/h/l: ペイン移動  j/k: 選択/スクロール  space: レビュー済→次へ  r: 済トグル  n/p: 次/前ファイル  a: Claudeに質問  e: エディタで開く  q: 終了")
+		"tab/h/l: ペイン移動  j/k: 選択/スクロール  space: レビュー済→次へ  r: 済トグル  n/p: 次/前ファイル  c: コメント  a: Claudeに質問  e: エディタで開く  q: 終了")
+	if m.commenting {
+		// The comment input takes over the footer row while open.
+		footer = m.commentInput.View()
+	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
 }
@@ -664,6 +695,9 @@ func (m *Model) renderHeader() string {
 	done := m.state.CountReviewed(m.plan)
 	total := m.plan.TotalUnits()
 	progress := fmt.Sprintf(" %d/%d レビュー済 ", done, total)
+	if n := m.state.TotalComments(); n > 0 {
+		progress = fmt.Sprintf(" コメント%d件 ·%s", n, progress)
+	}
 
 	title := m.plan.Title
 	if title == "" {
@@ -706,7 +740,8 @@ func (m *Model) renderTree() string {
 				fmt.Sprintf("%d. %s", r.step+1, m.plan.Steps[r.step].Name), uint(m.treeW), "…"))
 		case rowFile:
 			f := &m.plan.Steps[r.step].Files[r.file]
-			name := truncate.StringWithTail(f.Path, uint(m.treeW-6), "…")
+			name := truncate.StringWithTail(f.Path, uint(m.treeW-8), "…")
+			commented := m.hasComments(f.Path)
 			if i == m.cursor {
 				// The cursor line is styled as a whole; nested styles
 				// would reset its background mid-line.
@@ -714,7 +749,11 @@ func (m *Model) renderTree() string {
 				if m.state.FileReviewed(f) {
 					mark = "✓ "
 				}
-				line = fmt.Sprintf(" %s%s %s", mark, plainStatus(f.Status), name)
+				cmark := "  "
+				if commented {
+					cmark = "c "
+				}
+				line = fmt.Sprintf(" %s%s%s %s", mark, cmark, plainStatus(f.Status), name)
 				if pad := m.treeW - lipgloss.Width(line); pad > 0 {
 					line += strings.Repeat(" ", pad)
 				}
@@ -724,19 +763,28 @@ func (m *Model) renderTree() string {
 				if m.state.FileReviewed(f) {
 					mark = styleReviewed.Render("✓ ")
 				}
-				line = fmt.Sprintf(" %s%s %s", mark, statusIcon(f.Status), name)
+				cmark := "  "
+				if commented {
+					cmark = styleComment.Render("c ")
+				}
+				line = fmt.Sprintf(" %s%s%s %s", mark, cmark, statusIcon(f.Status), name)
 			}
 		case rowSection:
 			f := &m.plan.Steps[r.step].Files[r.file]
 			sec := f.Sections[r.sec]
-			name := truncate.StringWithTail(sec.Title, uint(m.treeW-8), "…")
+			name := truncate.StringWithTail(sec.Title, uint(m.treeW-10), "…")
 			reviewed := m.state.Reviewed[f.SectionKey(r.sec)]
+			commented := m.hasComments(f.SectionKey(r.sec))
 			if i == m.cursor {
 				mark := "  "
 				if reviewed {
 					mark = "✓ "
 				}
-				line = fmt.Sprintf("    %s· %s", mark, name)
+				cmark := "  "
+				if commented {
+					cmark = "c "
+				}
+				line = fmt.Sprintf("    %s%s· %s", mark, cmark, name)
 				if pad := m.treeW - lipgloss.Width(line); pad > 0 {
 					line += strings.Repeat(" ", pad)
 				}
@@ -746,7 +794,11 @@ func (m *Model) renderTree() string {
 				if reviewed {
 					mark = styleReviewed.Render("✓ ")
 				}
-				line = fmt.Sprintf("    %s%s %s", mark, styleFaint.Render("·"), name)
+				cmark := "  "
+				if commented {
+					cmark = styleComment.Render("c ")
+				}
+				line = fmt.Sprintf("    %s%s%s %s", mark, cmark, styleFaint.Render("·"), name)
 			}
 		}
 		lines = append(lines, line)
