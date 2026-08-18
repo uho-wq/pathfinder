@@ -29,6 +29,7 @@ Usage:
                                    .pathfinder/review.json, review.json の順に自動検出)
   pathfinder prompt                プラン生成用プロンプトを出力 (Claude Code等に渡す)
   pathfinder example               プランファイルのサンプルを出力
+  pathfinder comments [plan.json]  レビュー中に残したコメントをMarkdownで出力
 
 Flags:
   -C dir    git diff を実行するリポジトリのディレクトリ (default: カレント)
@@ -52,6 +53,9 @@ func main() {
 			return
 		case "example":
 			fmt.Print(examplePlan)
+			return
+		case "comments":
+			printComments(args[1:])
 			return
 		case "help", "-h", "--help":
 			fmt.Print(usage)
@@ -81,6 +85,27 @@ func main() {
 		fmt.Fprintf(os.Stderr, "エラー: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// printComments loads a plan and its state and writes the reviewer's
+// comments to stdout as markdown, ready to paste into a PR review.
+func printComments(args []string) {
+	planPath := findPlan(args, "")
+	if planPath == "" {
+		fmt.Fprintln(os.Stderr, "エラー: プランファイルが見つかりません")
+		os.Exit(1)
+	}
+	p, err := plan.Load(planPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "エラー: %v\n", err)
+		os.Exit(1)
+	}
+	out := plan.FormatComments(p, plan.LoadState(planPath))
+	if out == "" {
+		fmt.Fprintln(os.Stderr, "コメントはありません (TUIで c キーから残せます)")
+		return
+	}
+	fmt.Print(out)
 }
 
 // findPlan resolves the plan file to open: an explicit argument wins,

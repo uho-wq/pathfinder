@@ -47,6 +47,7 @@ var (
 			Bold(true)
 
 	styleReviewed = lipgloss.NewStyle().Foreground(colorDone)
+	styleComment  = lipgloss.NewStyle().Foreground(colorAccent)
 	styleFaint    = lipgloss.NewStyle().Foreground(colorFaint)
 
 	// GitHub-style diff rows: tinted line backgrounds, a stronger tint

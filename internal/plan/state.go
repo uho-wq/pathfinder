@@ -11,6 +11,9 @@ import (
 // a review can be resumed across sessions.
 type State struct {
 	Reviewed map[string]bool `json:"reviewed"`
+	// Comments are the reviewer's own notes, keyed by unit key (a file
+	// path, or path#index for a section) like Reviewed.
+	Comments map[string][]string `json:"comments,omitempty"`
 
 	path string
 }
@@ -35,6 +38,44 @@ func LoadState(planPath string) *State {
 		s.Reviewed = map[string]bool{}
 	}
 	return s
+}
+
+// AddComment appends a reviewer comment to a unit and persists the state.
+func (s *State) AddComment(key, text string) {
+	if s.Comments == nil {
+		s.Comments = map[string][]string{}
+	}
+	s.Comments[key] = append(s.Comments[key], text)
+	s.save()
+}
+
+// RemoveLastComment drops a unit's newest comment (the undo for a typo)
+// and persists the state. It is a no-op when the unit has none.
+func (s *State) RemoveLastComment(key string) {
+	cs := s.Comments[key]
+	if len(cs) == 0 {
+		return
+	}
+	if cs = cs[:len(cs)-1]; len(cs) == 0 {
+		delete(s.Comments, key)
+	} else {
+		s.Comments[key] = cs
+	}
+	s.save()
+}
+
+// CommentsFor returns a unit's comments in the order they were written.
+func (s *State) CommentsFor(key string) []string {
+	return s.Comments[key]
+}
+
+// TotalComments counts comments across all units.
+func (s *State) TotalComments() int {
+	n := 0
+	for _, cs := range s.Comments {
+		n += len(cs)
+	}
+	return n
 }
 
 // Toggle flips the reviewed mark for a file and persists the state.

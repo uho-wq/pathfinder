@@ -35,6 +35,7 @@ func TestViewRendersAllPanes(t *testing.T) {
 		"CreateInvitation",             // section row in the tree
 		"ステップ全体の変化",                    // guide sections
 		"この項目の変化",
+		"なぜこの処理か",
 		"レビュー観点",
 	} {
 		if !strings.Contains(view, want) {
@@ -225,5 +226,65 @@ func TestCalleePaneHiddenWithoutCallees(t *testing.T) {
 	m.handleKey(tea.KeyMsg{Type: tea.KeyShiftTab})
 	if m.focus != paneDiff {
 		t.Errorf("shift+tab should skip the callee pane, focus = %d", m.focus)
+	}
+}
+
+func TestCommentFlow(t *testing.T) {
+	m := exampleModel(t)
+
+	// c opens the comment input, which takes over the footer row.
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	if !m.commenting {
+		t.Fatal("c should open the comment input")
+	}
+	for _, r := range "気になる点" {
+		m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.commenting {
+		t.Error("enter should close the comment input")
+	}
+	cs := m.state.CommentsFor("internal/model/invitation.go")
+	if len(cs) != 1 || cs[0] != "気になる点" {
+		t.Fatalf("comment = %v", cs)
+	}
+
+	// The comment shows up in the guide (below the fold of the pane, so
+	// check the rendered content) and in the header count.
+	guide := renderGuide(m.selectedStep(), m.selectedFile(), nil, -1,
+		m.state.CommentsFor("internal/model/invitation.go"), 60)
+	for _, want := range []string{"■ コメント", "気になる点"} {
+		if !strings.Contains(guide, want) {
+			t.Errorf("guide should contain %q", want)
+		}
+	}
+	if view := m.View(); !strings.Contains(view, "コメント1件") {
+		t.Error("header should show the comment count")
+	}
+
+	// While the input is open, printable keys are text, not bindings:
+	// q must not quit and space must not toggle the reviewed mark.
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	m.handleKey(tea.KeyMsg{Type: tea.KeySpace})
+	if !m.commenting {
+		t.Error("typing q/space should not close the comment input")
+	}
+	if m.state.Reviewed["internal/model/invitation.go"] {
+		t.Error("space while commenting should not mark reviewed")
+	}
+	// esc discards the draft.
+	m.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	if m.commenting {
+		t.Error("esc should close the comment input")
+	}
+	if got := m.state.CommentsFor("internal/model/invitation.go"); len(got) != 1 {
+		t.Errorf("esc should not save a comment, got %v", got)
+	}
+
+	// C removes the unit's newest comment.
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'C'}})
+	if got := m.state.CommentsFor("internal/model/invitation.go"); len(got) != 0 {
+		t.Errorf("C should remove the last comment, got %v", got)
 	}
 }

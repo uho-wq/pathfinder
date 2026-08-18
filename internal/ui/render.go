@@ -11,10 +11,12 @@ import (
 )
 
 // renderGuide builds the right pane: the AI-authored guide for the
-// selected unit — a section of a file, or the whole file — in three fixed
-// parts: what changed across the step, what changed in this unit, and the
-// review points. sec is nil (and secIdx < 0) for whole-file units.
-func renderGuide(st *plan.Step, f *plan.File, sec *plan.Section, secIdx, width int) string {
+// selected unit — a section of a file, or the whole file — in four fixed
+// parts: what changed across the step, what changed in this unit, why
+// the change took this form, and the review points. The reviewer's own
+// comments on the unit, when any, follow at the bottom. sec is nil (and
+// secIdx < 0) for whole-file units.
+func renderGuide(st *plan.Step, f *plan.File, sec *plan.Section, secIdx int, comments []string, width int) string {
 	var b strings.Builder
 
 	section := func(title string) {
@@ -59,6 +61,15 @@ func renderGuide(st *plan.Step, f *plan.File, sec *plan.Section, secIdx, width i
 		para(f.Summary)
 	}
 
+	rationale := f.Rationale
+	if sec != nil {
+		rationale = sec.Rationale
+	}
+	if rationale != "" {
+		section("なぜこの処理か")
+		para(rationale)
+	}
+
 	points := f.ReviewPoints
 	if sec != nil {
 		points = sec.ReviewPoints
@@ -67,6 +78,13 @@ func renderGuide(st *plan.Step, f *plan.File, sec *plan.Section, secIdx, width i
 		section("レビュー観点")
 		for _, p := range points {
 			b.WriteString(bullet(p, width, styleGuideWarn.Render("✔ ")))
+		}
+	}
+
+	if len(comments) > 0 {
+		section("コメント")
+		for _, c := range comments {
+			b.WriteString(bullet(c, width, styleComment.Render("c ")))
 		}
 	}
 
