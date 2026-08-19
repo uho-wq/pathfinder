@@ -120,6 +120,8 @@ func TestAskPromptCarriesSelection(t *testing.T) {
 	for _, want := range []string{
 		"ユーザー招待機能の追加",                  // plan title
 		"internal/model/invitation.go", // selected file
+		"結論",                           // answer format
+		"根拠",
 		"なぜ?",
 	} {
 		if !strings.Contains(p, want) {

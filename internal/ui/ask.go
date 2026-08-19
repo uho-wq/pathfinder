@@ -46,7 +46,9 @@ func askCommand() []string {
 
 // askPrompt wraps the user's question with the review context claude
 // needs to answer it: which repo state is under review and which unit is
-// selected. claude explores the repo itself via its allowed tools.
+// selected. claude explores the repo itself via its allowed tools. The
+// answer format (結論/根拠) is pinned here because free-form answers
+// tend to be too long for the narrow ask pane.
 func (m *Model) askPrompt(question string) string {
 	var b strings.Builder
 	b.WriteString("あなたはPRレビュー中のレビュアーを支援するアシスタントです。リポジトリのルートで実行されています。\n")
@@ -70,7 +72,11 @@ func (m *Model) askPrompt(question string) string {
 			fmt.Fprintf(&b, "選択中の箇所: %s\n", loc)
 		}
 	}
-	b.WriteString("必要ならgitやコード検索で調べた上で、次の質問に日本語で簡潔に答えてください。\n\n質問: ")
+	b.WriteString("必要ならgitやコード検索で調べた上で、次の質問に日本語で答えてください。\n")
+	b.WriteString("回答は次の形式に従い、冗長な説明は省いてください。\n")
+	b.WriteString("* 結論: 質問への直接の答えを1〜2文で\n")
+	b.WriteString("* 根拠: 結論を支えるコードや差分の事実を箇条書きで\n")
+	b.WriteString("\n質問: ")
 	b.WriteString(question)
 	return b.String()
 }
