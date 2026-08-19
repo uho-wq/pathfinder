@@ -29,7 +29,12 @@ const (
 	paneDesc
 	paneAsk
 	paneCount
+
+	paneNone pane = -1
 )
+
+// wheelLines is how many rows one mouse-wheel tick scrolls.
+const wheelLines = 3
 
 type rowKind int
 
@@ -162,6 +167,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
+
+	case tea.MouseMsg:
+		return m.handleMouse(msg)
 
 	case editorFinishedMsg:
 		// The edit may have changed the working tree; re-derive the diff
@@ -315,6 +323,91 @@ func (m *Model) setFocus(p pane) {
 		m.layout()
 		m.refreshContent()
 	}
+}
+
+// handleMouse routes wheel events to the pane under the pointer, not
+// the focused one, so e.g. the diff scrolls under the wheel while the
+// tree keeps focus. Focus is left untouched.
+func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	if !m.ready {
+		return m, nil
+	}
+	lines := 0
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		lines = -wheelLines
+	case tea.MouseButtonWheelDown:
+		lines = wheelLines
+	default:
+		return m, nil
+	}
+	switch m.paneAt(msg.X, msg.Y) {
+	case paneTree:
+		m.scrollTree(lines)
+	case paneDiff:
+		m.diff = scrollLines(m.diff, lines)
+	case paneCallee:
+		m.callee = scrollLines(m.callee, lines)
+	case paneGuide:
+		m.guide = scrollLines(m.guide, lines)
+	case paneDesc:
+		m.desc = scrollLines(m.desc, lines)
+	case paneAsk:
+		m.askView = scrollLines(m.askView, lines)
+	}
+	return m, nil
+}
+
+// paneAt maps terminal coordinates to the pane drawn there, mirroring
+// the column widths and row splits that layout computed (each pane's
+// border adds 2 columns and, with its title row, 3 extra rows).
+func (m *Model) paneAt(x, y int) pane {
+	if y < 1 || y >= m.height-1 { // header / footer rows
+		return paneNone
+	}
+	right := m.treeW + 2
+	if x < right {
+		if y < 1+m.treeH+3 {
+			return paneTree
+		}
+		return paneAsk
+	}
+	if right += m.diff.Width + 2; x < right {
+		return paneDiff
+	}
+	if m.showCallees {
+		if right += m.callee.Width + 2; x < right {
+			return paneCallee
+		}
+	}
+	if right += m.guide.Width + 2; x < right {
+		if y < 1+m.guide.Height+3 {
+			return paneGuide
+		}
+		return paneDesc
+	}
+	return paneNone
+}
+
+// scrollTree shifts the visible window of the tree without moving the
+// cursor; the next cursor move snaps it back into view.
+func (m *Model) scrollTree(lines int) {
+	m.treeTop += lines
+	if max := len(m.rows) - m.treeH; m.treeTop > max {
+		m.treeTop = max
+	}
+	if m.treeTop < 0 {
+		m.treeTop = 0
+	}
+}
+
+func scrollLines(vp viewport.Model, lines int) viewport.Model {
+	if lines < 0 {
+		vp.ScrollUp(-lines)
+	} else {
+		vp.ScrollDown(lines)
+	}
+	return vp
 }
 
 func (m *Model) scrollKeys(vp viewport.Model, msg tea.KeyMsg) viewport.Model {
@@ -811,7 +904,7 @@ func (m *Model) renderTree() string {
 
 // Run starts the TUI and blocks until the user quits.
 func Run(p *plan.Plan, st *plan.State, repoDir string) error {
-	prog := tea.NewProgram(New(p, st, repoDir), tea.WithAltScreen())
+	prog := tea.NewProgram(New(p, st, repoDir), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err := prog.Run()
 	return err
 }

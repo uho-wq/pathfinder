@@ -102,6 +102,49 @@ func TestNavigationAndToggle(t *testing.T) {
 	}
 }
 
+func TestMouseWheelScrollsPaneUnderCursor(t *testing.T) {
+	m := exampleModel(t)
+
+	diffX := m.treeW + 2 + 1
+	midY := m.height / 2
+	if p := m.paneAt(diffX, midY); p != paneDiff {
+		t.Fatalf("paneAt over the diff column = %d", p)
+	}
+	if p := m.paneAt(0, 0); p != paneNone {
+		t.Errorf("paneAt on the header = %d, want none", p)
+	}
+	if p := m.paneAt(1, 1); p != paneTree {
+		t.Errorf("paneAt top of the left column = %d, want tree", p)
+	}
+	if p := m.paneAt(1, m.height-2); p != paneAsk {
+		t.Errorf("paneAt bottom of the left column = %d, want ask", p)
+	}
+	if p := m.paneAt(m.width-2, 1); p != paneGuide {
+		t.Errorf("paneAt top of the right column = %d, want guide", p)
+	}
+	if p := m.paneAt(m.width-2, m.height-2); p != paneDesc {
+		t.Errorf("paneAt bottom of the right column = %d, want desc", p)
+	}
+
+	// The wheel scrolls the diff under the pointer even while the tree
+	// keeps focus.
+	m.diff.SetContent(strings.Repeat("line\n", 200))
+	wheel := func(b tea.MouseButton) {
+		m.handleMouse(tea.MouseMsg{X: diffX, Y: midY, Button: b, Action: tea.MouseActionPress})
+	}
+	wheel(tea.MouseButtonWheelDown)
+	if m.focus != paneTree {
+		t.Errorf("wheel should not move focus, got %d", m.focus)
+	}
+	if m.diff.YOffset != wheelLines {
+		t.Errorf("wheel down over diff: YOffset = %d, want %d", m.diff.YOffset, wheelLines)
+	}
+	wheel(tea.MouseButtonWheelUp)
+	if m.diff.YOffset != 0 {
+		t.Errorf("wheel up over diff: YOffset = %d, want 0", m.diff.YOffset)
+	}
+}
+
 func TestSectionDiffScrollsToSection(t *testing.T) {
 	m := exampleModel(t)
 	// Move to the first section of the service file (line 3 of the
